@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+env
+.eggs
+*.egg-info
+*.egg
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# 环境配置
+.env
+.env.local
+.env.*.local
+
+# 日志
+logs/
+*.log
+
+# 数据目录 (使用 volume 挂载)
+data/
+
+# Docker
+docker-compose.override.yml
+docker/mysql/data
+
+# 测试
+.pytest_cache
+.coverage
+htmlcov
+.tox
+
+# 构建产物
+dist
+build
+*.spec
+
+# 文档
+*.md
+!README.md
+
+# 其他
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp

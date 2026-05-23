@@ -1,0 +1,44 @@
+[project]
+name = "douyin-live-hub"
+version = "1.0.0"
+description = "抖音直播数据记录站"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "axis" }
+]
+dependencies = [
+    # Flask Web 框架
+    "Flask>=3.0.0",
+    "Flask-SocketIO>=5.3.6",
+    "python-socketio>=5.10.0",
+    "Werkzeug>=3.0.1",
+    # 数据库
+    "SQLAlchemy>=2.0.23",
+    "pymysql>=1.1.0",
+    # 定时任务
+    "APScheduler>=3.10.4",
+    # HTTP 请求
+    "requests>=2.31.0",
+    # WebSocket
+    "websocket-client>=1.7.0",
+    # JavaScript 执行 (签名生成)
+    "mini_racer>=0.12.4",
+    "PyExecJS>=1.5.1",
+    # Protobuf 解析
+    "betterproto==2.0.0b6",
+    "protobuf>=4.24.0",
+    # 日志
+    "loguru>=0.7.3",
+    # 环境变量
+    "python-dotenv>=1.0.1",
+    # 异步支持
+    "gevent>=23.9.0",
+    "gevent-websocket>=0.10.1",
+    "rich>=14.3.2",
+    # 终端宽度计算
+    "wcwidth>=0.2.0",
+]
+
+[dependency-groups]
+dev = []

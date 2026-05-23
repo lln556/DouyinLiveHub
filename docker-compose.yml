@@ -1,0 +1,112 @@
+# 抖音直播监控平台 Docker Compose 配置
+# 使用方法:
+#   1. 复制 .env.example 为 .env 并配置
+#   2. docker-compose up -d
+#   3. 访问 http://localhost:7654
+
+services:
+  # ==================== 应用服务 ====================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${DOCKER_PYTHON_IMAGE:-python:3.11-slim}
+        UV_IMAGE: ${DOCKER_UV_IMAGE:-ghcr.io/astral-sh/uv:latest}
+    container_name: douyin-live-monitor
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-7654}:7654"
+    environment:
+      # 数据库配置
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-douyin}:${MYSQL_PASSWORD:-douyin123}@db:3306/${MYSQL_DATABASE:-douyin_live}?charset=utf8mb4
+      # Flask 配置
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - DEBUG=${DEBUG:-False}
+      - SQLALCHEMY_ECHO=${SQLALCHEMY_ECHO:-False}
+      - AUTH_USERNAME=${AUTH_USERNAME:-}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      # 代理配置 (可选)
+      - PROXY_ENABLED=${PROXY_ENABLED:-False}
+      - PROXY_HOST=${PROXY_HOST:-host.docker.internal}
+      - PROXY_PORT=${PROXY_PORT:-7890}
+      - PROXY_TYPE=${PROXY_TYPE:-http}
+      # 抖音登录 Cookie（可选，用于接收礼物消息）
+      - DOUYIN_COOKIE=${DOUYIN_COOKIE:-}
+      # Socket.IO 配置
+      - SOCKETIO_CORS_ALLOWED_ORIGINS=${SOCKETIO_CORS_ALLOWED_ORIGINS:-*}
+      - SOCKETIO_ASYNC_MODE=${SOCKETIO_ASYNC_MODE:-threading}
+      # 监控配置
+      - MONITOR_RECONNECT_INTERVAL=${MONITOR_RECONNECT_INTERVAL:-30}
+      - MONITOR_MAX_RETRIES=${MONITOR_MAX_RETRIES:-5}
+      - MONITOR_RECONNECT_DELAY=${MONITOR_RECONNECT_DELAY:-30}
+      - MONITOR_STATUS_POLL_INTERVAL=${MONITOR_STATUS_POLL_INTERVAL:-60}
+      # 数据保留
+      - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-90}
+      # 日志
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_ROTATION=${LOG_ROTATION:-10 MB}
+      - LOG_RETENTION=${LOG_RETENTION:-14 days}
+      - LOG_COMPRESSION=${LOG_COMPRESSION:-zip}
+      - ERROR_LOG_ROTATION=${ERROR_LOG_ROTATION:-5 MB}
+      - STATUS_DISPLAY_ENABLED=${STATUS_DISPLAY_ENABLED:-False}
+    volumes:
+      # 映射代码目录 (支持热更新)
+      - .:/app
+      # 保护容器内的虚拟环境不被覆盖
+      - /app/.venv
+      # 持久化数据目录
+      - ./data:/app/data
+      # 持久化日志目录
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - douyin-network
+    # 如果需要访问宿主机的代理服务
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ==================== 数据库服务 ====================
+  db:
+    image: mysql:8.0
+    container_name: douyin-live-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-douyin_live}
+      - MYSQL_USER=${MYSQL_USER:-douyin}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-douyin123}
+      - TZ=Asia/Shanghai
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      # 持久化数据库数据
+      - mysql_data:/var/lib/mysql
+      # 初始化脚本 (可选)
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+      # 自定义配置已注释 - 依赖 command 参数配置
+      # - ./docker/mysql/conf.d:/etc/mysql/conf.d
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - douyin-network
+
+# ==================== 网络配置 ====================
+networks:
+  douyin-network:
+    driver: bridge
+
+# ==================== 数据卷配置 ====================
+volumes:
+  mysql_data:
+    driver: local
