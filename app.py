@@ -360,6 +360,7 @@ def handle_join(data):
                 'total_income': monitored_room.stats['total_income'],
                 'contributor_count': monitored_room.stats['contributor_count'],
                 'contributor_info': rank_list,
+                'like_rank_list': monitored_room.get_like_rank(100),
                 'current_session': current_session_data
             })
             logger.debug(f"推送统计数据给加入的客户端: room_{live_id}")

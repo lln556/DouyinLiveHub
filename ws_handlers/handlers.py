@@ -737,6 +737,11 @@ class WebDouyinLiveFetcher:
         if hasattr(like_msg.user, 'fans_club') and like_msg.user.fans_club and like_msg.user.fans_club.data:
             fans_club_level = like_msg.user.fans_club.data.level or 0
 
+        # 提取用户头像，避免「只点过赞、没送过礼物」的用户在榜单里没头像
+        avatar = None
+        if hasattr(like_msg.user, 'avatar_thumb') and like_msg.user.avatar_thumb:
+            avatar = like_msg.user.avatar_thumb.url_list_list[0] if like_msg.user.avatar_thumb.url_list_list else None
+
         data_service = self.monitored_room.manager.data_service
 
         # 用户贡献榜按消息 count 归属（total 差值无法归属到具体用户）
@@ -745,6 +750,7 @@ class WebDouyinLiveFetcher:
                 user_id,
                 user,
                 like_count=count,
+                user_avatar=avatar,
                 user_level=level,
                 fans_club_level=fans_club_level
             )
@@ -781,7 +787,8 @@ class WebDouyinLiveFetcher:
             'total_like_count': stats.get('total_like_count', 0),
             'total_income': stats['total_income'],
             'contributor_count': stats['contributor_count'],
-            'current_session': current_session_data
+            'current_session': current_session_data,
+            'like_rank_list': self.monitored_room.get_like_rank(100),
         }, room=f'room_{self.live_id}')
 
     def _handle_stats_message(self, stats_msg):
@@ -855,7 +862,8 @@ class WebDouyinLiveFetcher:
             'total_income': self.monitored_room.stats['total_income'],
             'contributor_count': self.monitored_room.stats['contributor_count'],
             'contributor_info': rank_list,
-            'current_session': current_session_data
+            'current_session': current_session_data,
+            'like_rank_list': self.monitored_room.get_like_rank(100),
         }, room=f'room_{self.live_id}')
         self.log.debug(f"发送直播间统计: 当前{current}, 累计{total}, 总收入{self.total_income}, 贡献者数{len(self.monitored_room.user_contributions)}")
 
@@ -905,7 +913,8 @@ class WebDouyinLiveFetcher:
                             'total_income': self.monitored_room.stats['total_income'],
                             'contributor_count': self.monitored_room.stats['contributor_count'],
                             'contributor_info': [],
-                            'current_session': current_session_data
+                            'current_session': current_session_data,
+                            'like_rank_list': [],
                         }, room=f'room_{self.live_id}')
                         self.log.info(f"推送直播结束状态更新: session_id={session.id}, status={session.status}")
                 finally:

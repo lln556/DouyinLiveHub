@@ -507,6 +507,7 @@ class MonitoredRoom:
                                 'total_income': self.stats['total_income'],
                                 'contributor_count': self.stats['contributor_count'],
                                 'contributor_info': [],
+                                'like_rank_list': [],
                                 'current_session': current_session_data
                             }, room=f'room_{self.live_id}')
                             logger.info(f"[{self.live_id}] 推送直播结束状态更新: session_id={session.id}, status={session.status}")
@@ -622,6 +623,30 @@ class MonitoredRoom:
         if rank_list:
             top_5 = [{'rank': r['rank'], 'user_id': r['user_id'], 'user': r['user'], 'score': r['score']} for r in rank_list[:5]]
             logger.debug(f"[贡献榜TOP5] {top_5}")
+
+        return rank_list
+
+    def get_like_rank(self, limit: int = 100) -> list:
+        """获取本场点赞排行榜（只显示有点赞行为的用户）"""
+        rank_list = sorted(
+            [
+                {
+                    'user_id': k,
+                    'user': v['user_name'],
+                    'like_count': v.get('like_count', 0),
+                    'avatar': v.get('avatar'),
+                    'fans_club_level': v.get('fans_club_level', 0),
+                    'user_level': v.get('user_level', 0)
+                }
+                for k, v in self.user_contributions.items()
+                if v.get('like_count', 0) > 0
+            ],
+            key=lambda x: x['like_count'],
+            reverse=True
+        )[:limit]
+
+        for i, item in enumerate(rank_list):
+            item['rank'] = i + 1
 
         return rank_list
 

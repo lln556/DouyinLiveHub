@@ -10,6 +10,7 @@ const app = new Vue({
         loading: true,
         loadingMessages: false,  // 加载消息时的loading状态（已废弃）
         activeTab: 'all', // all/chat/gift
+        activeRankTab: 'gift', // gift/like 右侧栏 tab
         messages: [],
         lastSession: null,  // 上次直播场次
         sessions: [],  // 历史场次列表
@@ -20,7 +21,8 @@ const app = new Vue({
             totalLikeCount: 0,
             totalIncome: 0,
             contributorCount: 0,
-            contributorInfo: []
+            contributorInfo: [],
+            likeRankInfo: []
         },
         currentSession: null,
         contributors: [],
@@ -383,7 +385,8 @@ const app = new Vue({
                 totalLikeCount: this.stats.totalLikeCount,
                 totalIncome: this.stats.totalIncome,
                 contributorCount: this.stats.contributorCount,
-                contributorInfo: this.stats.contributorInfo || []
+                contributorInfo: this.stats.contributorInfo || [],
+                likeRankInfo: this.stats.likeRankInfo || []
             };
 
             [
@@ -412,6 +415,19 @@ const app = new Vue({
 
                 if (!shouldKeepExistingList) {
                     nextStats.contributorInfo = contributorInfo;
+                }
+            }
+
+            const likeRankInfo = pick('likeRankInfo', 'like_rank_list');
+            if (Array.isArray(likeRankInfo)) {
+                const shouldKeepExistingLikeList = (
+                    likeRankInfo.length === 0 &&
+                    nextStats.likeRankInfo.length > 0 &&
+                    options.preserveEmptyContributors
+                );
+
+                if (!shouldKeepExistingLikeList) {
+                    nextStats.likeRankInfo = likeRankInfo;
                 }
             }
 
@@ -465,6 +481,9 @@ const app = new Vue({
         },
         setTab(tab) {
             this.activeTab = tab;
+        },
+        setRankTab(tab) {
+            this.activeRankTab = tab;
         },
         formatIncome(value) {
             return value ? value.toLocaleString() + ' 钻石' : '0 钻石';
