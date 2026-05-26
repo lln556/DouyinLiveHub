@@ -104,6 +104,11 @@ const app = new Vue({
         selectedRoomId() {
             if (this.activeRankTab === 'like') {
                 this.loadTopLikers();
+            } else if (this.hasSearched) {
+                // 切换房间后清空已搜索结果，避免贡献榜表格显示旧房间数据，
+                // 用户需要重新点击"查询统计"才会拉新房间的贡献榜。
+                this.contributors = [];
+                this.hasSearched = false;
             }
         }
     },

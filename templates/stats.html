@@ -239,12 +239,12 @@
                 <div class="lg:col-span-6">
                     <label class="block text-xs font-medium text-gray-600 mb-1">统计周期</label>
                     <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        <button @click="timeRange='7days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近7天</button>
-                        <button @click="timeRange='30days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近30天</button>
-                        <button @click="timeRange='month'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按月份</button>
-                        <button @click="timeRange='year'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按年份</button>
-                        <button @click="timeRange='total'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">总榜</button>
-                        <button @click="timeRange='custom'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">自定义</button>
+                        <button @click="timeRange='7days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近7天</button>
+                        <button @click="timeRange='30days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近30天</button>
+                        <button @click="timeRange='month'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按月份</button>
+                        <button @click="timeRange='year'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按年份</button>
+                        <button @click="timeRange='total'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">总榜</button>
+                        <button @click="timeRange='custom'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">自定义</button>
                     </div>
                 </div>
 
@@ -252,6 +252,7 @@
                     <button
                         @click="loadData"
                         :disabled="(loading && hasSearched) || activeRankTab === 'like'"
+                        :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''"
                         :class="['w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 text-sm font-medium', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                         <span v-text="loading && hasSearched ? '查询中...' : '查询统计'"></span>
                     </button>
@@ -261,20 +262,20 @@
             <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 <div v-if="timeRange === 'month'" class="md:col-span-3">
                     <label class="block text-xs font-medium text-gray-600 mb-1">月份</label>
-                    <input v-model="selectedMonth" type="month" :disabled="activeRankTab === 'like'" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                    <input v-model="selectedMonth" type="month" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                 </div>
                 <div v-if="timeRange === 'year'" class="md:col-span-3">
                     <label class="block text-xs font-medium text-gray-600 mb-1">年份</label>
-                    <input v-model="selectedYear" type="number" min="2000" max="2100" :disabled="activeRankTab === 'like'" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                    <input v-model="selectedYear" type="number" min="2000" max="2100" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                 </div>
                 <template v-if="timeRange === 'custom'">
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">开始日期</label>
-                        <input v-model="customStartDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                        <input v-model="customStartDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                     </div>
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">结束日期</label>
-                        <input v-model="customEndDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                        <input v-model="customEndDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                     </div>
                 </template>
 
