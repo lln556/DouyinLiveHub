@@ -38,9 +38,50 @@
             width: 90%;
             max-width: 1200px;
         }
+        .stats-main-grid {
+            align-items: start;
+        }
+        .rank-card,
+        .sessions-card {
+            min-width: 0;
+        }
+        .rank-card {
+            display: flex;
+            flex-direction: column;
+        }
         .contributor-table {
-            max-height: 600px;
-            overflow-y: auto;
+            max-height: min(600px, 70vh);
+            overflow: auto;
+        }
+        .sessions-table {
+            max-height: 24rem;
+            overflow: auto;
+        }
+        @media (min-width: 1024px) {
+            .rank-card,
+            .sessions-card {
+                max-height: calc(100vh - 2rem);
+            }
+            .rank-card {
+                overflow: hidden;
+            }
+            .contributor-table {
+                flex: 1;
+                min-height: 0;
+                max-height: none;
+            }
+            .sessions-card {
+                position: sticky;
+                top: 1rem;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .sessions-table {
+                flex: 1;
+                min-height: 0;
+                max-height: none;
+            }
         }
         .contributor-table::-webkit-scrollbar {
             width: 6px;
@@ -390,9 +431,9 @@
             </div>
 
             <!-- 主内容区：左右分栏 -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="stats-main-grid grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- 左侧：贡献榜 -->
-                <div class="bg-white rounded-lg shadow-md">
+                <div class="rank-card bg-white rounded-lg shadow-md">
                     <!-- 用户排行 Tab 切换 -->
                     <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
                         <button
@@ -557,7 +598,7 @@
                 </div>
 
                 <!-- 右侧：场次列表（仅在选中房间时显示） -->
-                <div v-if="selectedRoomId" class="bg-white rounded-lg shadow-md">
+                <div v-if="selectedRoomId" class="sessions-card bg-white rounded-lg shadow-md">
                     <div class="px-4 py-3 border-b flex justify-between items-center bg-gradient-to-r from-blue-50 to-indigo-50">
                         <h2 class="text-base font-bold text-gray-800">
                             <svg class="w-4 h-4 inline mr-1 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
@@ -568,7 +609,7 @@
                         <span class="text-xs text-gray-500">共 {{ sessions.length }} 场</span>
                     </div>
 
-                    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                    <div class="sessions-table">
                         <table class="w-full">
                             <thead class="bg-gray-50 sticky top-0">
                                 <tr>
