@@ -22,6 +22,10 @@ const app = new Vue({
             total: 0,
             total_pages: 1
         },
+        // 累积点赞榜
+        activeRankTab: 'gift',  // 'gift' | 'like'
+        likers: [],
+        likersLoading: false,
         loading: true,
         hasSearched: false,
         userNameSearch: '',
@@ -96,6 +100,11 @@ const app = new Vue({
             this.userSearchDebounceTimer = setTimeout(() => {
                 this.searchStatsUserByName({ silent: true });
             }, 350);
+        },
+        selectedRoomId() {
+            if (this.activeRankTab === 'like') {
+                this.loadTopLikers();
+            }
         }
     },
     async mounted() {
@@ -122,6 +131,38 @@ const app = new Vue({
                 }
             } catch (error) {
                 console.error('加载房间列表失败:', error);
+            }
+        },
+        setRankTab(tab) {
+            if (this.activeRankTab === tab) return;
+            this.activeRankTab = tab;
+            if (tab === 'like') {
+                this.loadTopLikers();
+            }
+        },
+        async loadTopLikers() {
+            this.likersLoading = true;
+            try {
+                const params = new URLSearchParams();
+                if (this.selectedRoomId) {
+                    params.set('live_id', this.selectedRoomId);
+                }
+                params.set('limit', '100');
+                const resp = await fetch('/api/rooms/top-likers?' + params.toString());
+                const data = await resp.json();
+                this.likers = data.likers || [];
+            } catch (e) {
+                console.error('加载累积点赞榜失败:', e);
+                this.likers = [];
+            } finally {
+                this.likersLoading = false;
+            }
+        },
+        openLikerMessages(liker) {
+            if (typeof this.openUserMessagesModal === 'function') {
+                this.openUserMessagesModal(liker.user_id, liker.user_name || liker.user_id, {
+                    live_id: liker.live_id
+                });
             }
         },
         async loadDateRange() {
