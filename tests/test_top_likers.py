@@ -88,5 +88,69 @@ class GetTopLikersTests(unittest.TestCase):
         self.assertEqual(item['gift_count'], 3)
 
 
+class TopLikersApiTests(unittest.TestCase):
+    def setUp(self):
+        import importlib
+        from flask import Flask
+        import api.rooms as rooms_module
+
+        # 重新加载模块，确保每个测试拿到全新的 Blueprint 实例
+        # （rooms_bp 是模块级单例，注册后无法再添加路由）
+        importlib.reload(rooms_module)
+
+        self.svc = DataService('sqlite:///:memory:')
+        self.svc.create_tables()
+
+        app = Flask(__name__)
+        rooms_bp = rooms_module.init_rooms_api(self.svc, None, None)
+        app.register_blueprint(rooms_bp)
+        self.client = app.test_client()
+
+    def tearDown(self):
+        self.svc.close_session()
+
+    def _insert(self, **kwargs):
+        s = self.svc.get_session()
+        try:
+            s.add(UserContribution(**kwargs))
+            s.commit()
+        finally:
+            s.close()
+
+    def test_empty(self):
+        resp = self.client.get('/api/rooms/top-likers')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['likers'], [])
+        self.assertEqual(data['total'], 0)
+
+    def test_returns_data(self):
+        self._insert(live_id='r1', user_id='u1', user_name='a',
+                     total_score=0, like_count=100)
+        resp = self.client.get('/api/rooms/top-likers?limit=10')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(len(data['likers']), 1)
+        self.assertEqual(data['likers'][0]['like_count'], 100)
+        self.assertEqual(data['source'], 'summary')
+
+    def test_filter_by_live_id(self):
+        self._insert(live_id='r1', user_id='u1', user_name='a',
+                     total_score=0, like_count=10)
+        self._insert(live_id='r2', user_id='u2', user_name='b',
+                     total_score=0, like_count=20)
+        resp = self.client.get('/api/rooms/top-likers?live_id=r1')
+        data = resp.get_json()
+        self.assertEqual(len(data['likers']), 1)
+        self.assertEqual(data['likers'][0]['live_id'], 'r1')
+
+    def test_caps_limit_at_1000(self):
+        for i in range(5):
+            self._insert(live_id='r1', user_id=f'u{i}', user_name=f'n{i}',
+                         total_score=0, like_count=i + 1)
+        resp = self.client.get('/api/rooms/top-likers?limit=99999')
+        self.assertEqual(resp.status_code, 200)
+
+
 if __name__ == '__main__':
     unittest.main()
