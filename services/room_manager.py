@@ -507,6 +507,7 @@ class MonitoredRoom:
                                 'total_income': self.stats['total_income'],
                                 'contributor_count': self.stats['contributor_count'],
                                 'contributor_info': [],
+                                'like_rank_list': [],
                                 'current_session': current_session_data
                             }, room=f'room_{self.live_id}')
                             logger.info(f"[{self.live_id}] 推送直播结束状态更新: session_id={session.id}, status={session.status}")
