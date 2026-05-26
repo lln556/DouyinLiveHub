@@ -827,6 +827,36 @@ class DataService:
         finally:
             session.close()
 
+    def get_top_likers(self, live_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """获取累积点赞榜（基于 UserContribution.like_count，per-(live_id, user_id) 累积）。
+        like_count > 0 才进入榜单；不传 live_id 则跨房间，同一 user_id 在不同房间显示多行。
+        """
+        session = self.get_session()
+        try:
+            conditions = [UserContribution.like_count > 0]
+            if live_id:
+                conditions.append(UserContribution.live_id == live_id)
+
+            rows = session.query(UserContribution).filter(
+                and_(*conditions)
+            ).order_by(
+                UserContribution.like_count.desc(),
+                UserContribution.updated_at.desc()
+            ).limit(limit).all()
+
+            return [{
+                'live_id': r.live_id,
+                'anchor_name': r.anchor_name,
+                'user_id': r.user_id,
+                'user_name': r.user_name,
+                'user_avatar': r.user_avatar,
+                'like_count': int(r.like_count or 0),
+                'gift_count': int(r.gift_count or 0),
+                'fans_club_level': r.fans_club_level or 0,
+            } for r in rows]
+        finally:
+            session.close()
+
     def get_room_date_range(self, live_id: str = None) -> Dict[str, Optional[str]]:
         """
         获取房间的直播数据日期范围（最早和最晚的直播日期）
