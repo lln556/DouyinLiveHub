@@ -8,6 +8,7 @@ from unittest.mock import patch
 from models.database import CHINA_TZ
 from services import room_manager as room_manager_module
 from services.data_service import DataService
+from ws_handlers.handlers import WebDouyinLiveFetcher
 
 
 class FakeDataService:
@@ -48,10 +49,41 @@ class RecordingContributionDataService(FakeDataService):
     def __init__(self):
         super().__init__()
         self.contribution_updates = []
+        self.session_stat_updates = []
 
     def update_user_contribution(self, *args, **kwargs):
         self.contribution_updates.append((args, kwargs))
         return SimpleNamespace()
+
+    def increment_session_stats(self, *args, **kwargs):
+        self.session_stat_updates.append((args, kwargs))
+        return True
+
+    def get_current_live_session(self, live_id):
+        if live_id == self.room.live_id:
+            return SimpleNamespace(
+                id=77,
+                start_time=None,
+                end_time=None,
+                status="live",
+                total_income=0,
+                total_gift_count=0,
+                total_chat_count=0,
+                total_like_count=sum(
+                    kwargs.get("like_count_delta", 0)
+                    for _, kwargs in self.session_stat_updates
+                ),
+                peak_viewer_count=0,
+            )
+        return None
+
+
+class FakeSocketIO:
+    def __init__(self):
+        self.emitted = []
+
+    def emit(self, *args, **kwargs):
+        self.emitted.append((args, kwargs))
 
 
 class FakeStartedRoom:
@@ -426,6 +458,45 @@ class RoomManagerLifecycleTest(unittest.TestCase):
             finally:
                 data_service.close_session()
 
+    def test_like_counts_are_tracked_on_user_session_and_aggregate_stats(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as db_file:
+            data_service = DataService(f"sqlite:///{db_file.name}")
+            try:
+                data_service.create_tables()
+                data_service.create_live_room(
+                    "123",
+                    anchor_name="anchor",
+                    monitor_type="24h",
+                    auto_reconnect=True,
+                    status="monitoring"
+                )
+                live_session = data_service.create_live_session("123", anchor_name="anchor", status="live")
+
+                data_service.update_user_contribution(
+                    "123",
+                    "anchor",
+                    "like-user",
+                    "点赞用户",
+                    like_count=7,
+                )
+                data_service.increment_session_stats(live_session.id, like_count_delta=7)
+
+                user = data_service.get_user_contribution("123", "like-user")
+                session_stats = data_service.get_live_session_stats(live_session.id)
+                aggregate = data_service.get_sessions_aggregated_stats("123")
+                user_messages = data_service.get_user_messages(
+                    live_id="123",
+                    user_id="like-user",
+                    message_type="all",
+                )
+
+                self.assertEqual(user.like_count, 7)
+                self.assertEqual(session_stats["total_like_count"], 7)
+                self.assertEqual(aggregate["total_like_count"], 7)
+                self.assertEqual(user_messages["stats"]["like_count"], 7)
+            finally:
+                data_service.close_session()
+
     def test_summary_contributors_enrich_chat_count_and_user_level_from_messages(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as db_file:
             data_service = DataService(f"sqlite:///{db_file.name}")
@@ -511,6 +582,70 @@ class RoomManagerLifecycleTest(unittest.TestCase):
         self.assertEqual(kwargs["gift_value"], 100)
         self.assertEqual(kwargs["gift_count"], 3)
         self.assertEqual(kwargs["chat_count"], 2)
+
+    def test_monitored_room_persists_like_count_to_contribution_summary(self):
+        data_service = RecordingContributionDataService()
+        manager = self.make_manager(data_service)
+        room = room_manager_module.MonitoredRoom("123", manager)
+
+        room.update_contribution(
+            "like-user",
+            "点赞用户",
+            like_count=9,
+            user_level=20,
+        )
+
+        self.assertEqual(room.user_contributions["like-user"]["like_count"], 9)
+        args, kwargs = data_service.contribution_updates[0]
+        self.assertEqual(args[:4], ("123", None, "like-user", "点赞用户"))
+        self.assertEqual(kwargs["like_count"], 9)
+
+    def test_like_message_handler_deduplicates_by_message_id(self):
+        data_service = RecordingContributionDataService()
+        manager = self.make_manager(data_service)
+        room = room_manager_module.MonitoredRoom("123", manager)
+        # 模拟监控期间已建立点赞基线：之前某条消息 total=100
+        room.stats['like_baseline_total'] = 100
+        room.stats['like_last_seen_total'] = 100
+        socketio = FakeSocketIO()
+        fetcher = WebDouyinLiveFetcher.__new__(WebDouyinLiveFetcher)
+        fetcher.live_id = "123"
+        fetcher.monitored_room = room
+        fetcher.socketio = socketio
+        fetcher.current_session_id = 77
+        fetcher.like_message_keys = []
+        fetcher.log = SimpleNamespace(
+            debug=lambda *args, **kwargs: None,
+            info=lambda *args, **kwargs: None,
+        )
+
+        like_msg = SimpleNamespace(
+            common=SimpleNamespace(msg_id=9988),
+            count=5,
+            total=120,
+            user=SimpleNamespace(
+                nick_name="点赞用户",
+                id=42,
+                id_str="user-42",
+                pay_grade=SimpleNamespace(level=18),
+                fans_club=None,
+            ),
+            double_like_detail=SimpleNamespace(seq_id=1),
+        )
+
+        fetcher._handle_like_message(like_msg)
+        fetcher._handle_like_message(like_msg)
+
+        # 监控期间增量 = total - last_seen = 120 - 100 = 20
+        self.assertEqual(room.stats["total_like_count"], 20)
+        self.assertEqual(room.stats["like_last_seen_total"], 120)
+        # user_contributions 仍按消息 count 归属
+        self.assertEqual(room.user_contributions["user-42"]["like_count"], 5)
+        self.assertEqual(len(data_service.contribution_updates), 1)
+        # session 入账用 total 差值，而不是 count
+        self.assertEqual(len(data_service.session_stat_updates), 1)
+        self.assertEqual(data_service.session_stat_updates[0][1]["like_count_delta"], 20)
+        self.assertEqual(len(socketio.emitted), 1)
 
     def test_user_messages_falls_back_to_contribution_name_when_messages_are_pruned(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as db_file:

@@ -17,6 +17,7 @@ const app = new Vue({
         stats: {
             currentUserCount: 0,
             totalUserCount: 0,
+            totalLikeCount: 0,
             totalIncome: 0,
             contributorCount: 0,
             contributorInfo: []
@@ -46,6 +47,7 @@ const app = new Vue({
                 total_messages: 0,
                 chat_count: 0,
                 gift_count: 0,
+                like_count: 0,
                 total_value: 0
             },
             messages: [],
@@ -378,6 +380,7 @@ const app = new Vue({
             const nextStats = {
                 currentUserCount: this.stats.currentUserCount,
                 totalUserCount: this.stats.totalUserCount,
+                totalLikeCount: this.stats.totalLikeCount,
                 totalIncome: this.stats.totalIncome,
                 contributorCount: this.stats.contributorCount,
                 contributorInfo: this.stats.contributorInfo || []
@@ -386,6 +389,7 @@ const app = new Vue({
             [
                 ['currentUserCount', 'current_user_count'],
                 ['totalUserCount', 'total_user_count'],
+                ['totalLikeCount', 'total_like_count'],
                 ['totalIncome', 'total_income'],
                 ['contributorCount', 'contributor_count']
             ].forEach(([camelKey, snakeKey]) => {
@@ -566,6 +570,7 @@ const app = new Vue({
                     total_messages: 0,
                     chat_count: 0,
                     gift_count: 0,
+                    like_count: 0,
                     total_value: 0
                 },
                 messages: [],

@@ -10,7 +10,7 @@ import websocket
 if TYPE_CHECKING:
     from services.room_manager import MonitoredRoom
 
-from protobuf.douyin import PushFrame, Response, ChatMessage, GiftMessage, RoomUserSeqMessage, ControlMessage
+from protobuf.douyin import PushFrame, Response, ChatMessage, GiftMessage, LikeMessage, RoomUserSeqMessage, ControlMessage
 from utils.logger import get_logger
 import config
 
@@ -93,6 +93,7 @@ class WebDouyinLiveFetcher:
 
         # 本地数据（用于实时推送）
         self.traceId_list = []
+        self.like_message_keys = []
         self.gift_users = set()
         self.total_income = 0
         self.current_session_id = None  # 当前直播场次ID
@@ -124,7 +125,8 @@ class WebDouyinLiveFetcher:
                             'user_name': contributor['nickname'],
                             'score': contributor['contribution_value'],
                             'avatar': contributor['user_avatar'],
-                            'gift_count': contributor['gift_count']
+                            'gift_count': contributor['gift_count'],
+                            'like_count': contributor.get('like_count', 0)
                         }
                     self.log.info(f"预加载了 {len(session_contributors)} 个贡献者到本地缓存")
         except Exception as e:
@@ -180,6 +182,8 @@ class WebDouyinLiveFetcher:
                             self._handle_chat_message(ChatMessage().parse(msg.payload))
                         elif method == 'WebcastGiftMessage':
                             self._handle_gift_message(GiftMessage().parse(msg.payload))
+                        elif method == 'WebcastLikeMessage':
+                            self._handle_like_message(LikeMessage().parse(msg.payload))
                         elif method == 'WebcastRoomUserSeqMessage':
                             self._handle_stats_message(RoomUserSeqMessage().parse(msg.payload))
                         elif method == 'WebcastControlMessage':
@@ -656,6 +660,130 @@ class WebDouyinLiveFetcher:
         self.socketio.emit(f'room_{self.live_id}', message_data, room=f'room_{self.live_id}')
         self.log.debug(f"发送礼物消息: {user} 送出了 {gift_name}x{gift_count},单价{gift_price},总价值{total_gift_value}")
 
+    def _build_like_dedupe_key(self, like_msg, user_id: str, count: int, total: int):
+        """构建点赞消息去重键，优先使用平台消息 ID。"""
+        common = getattr(like_msg, 'common', None)
+        msg_id = getattr(common, 'msg_id', None) if common else None
+        if msg_id:
+            return f"msg:{msg_id}"
+
+        detail = getattr(like_msg, 'double_like_detail', None)
+        seq_id = getattr(detail, 'seq_id', None) if detail else None
+        if seq_id:
+            return f"seq:{user_id}:{seq_id}:{count}:{total}"
+
+        return None
+
+    @staticmethod
+    def _apply_like_delta(stats: dict, count: int, total: int) -> int:
+        """更新 stats 中的点赞基线/累计字段，返回本次「监控期间真实增量」。
+
+        语义：
+        - 首条带 total>0 的消息：建立基线，real_delta=0（不入账，避免把开播以来的存量算进监控期）。
+        - 后续消息：real_delta = max(0, total - last_seen)，并把 stats[total_like_count]
+          刷新为 last_seen - baseline（监控期内的真实涨幅）。
+        - 平台没给 total（total<=0）且 count>0 时：兜底用 count 增量。
+        """
+        if total > 0:
+            baseline = stats.get('like_baseline_total')
+            if baseline is None:
+                stats['like_baseline_total'] = total
+                stats['like_last_seen_total'] = total
+                stats['total_like_count'] = 0
+                return 0
+            last_seen = stats.get('like_last_seen_total') or baseline
+            real_delta = max(0, total - last_seen)
+            new_last_seen = max(last_seen, total)
+            stats['like_last_seen_total'] = new_last_seen
+            stats['total_like_count'] = max(0, new_last_seen - baseline)
+            return real_delta
+        if count > 0:
+            stats['total_like_count'] = int(stats.get('total_like_count') or 0) + count
+            return count
+        return 0
+
+    def _handle_like_message(self, like_msg):
+        """处理点赞消息：用 platform total 差值入账「监控期间增量」，按 count 归属用户。"""
+        user = like_msg.user.nick_name
+        level = like_msg.user.pay_grade.level if hasattr(like_msg.user, 'pay_grade') else 0
+
+        raw_id = like_msg.user.id_str if hasattr(like_msg.user, 'id_str') and like_msg.user.id_str else str(like_msg.user.id)
+        if raw_id in ['0', '111111']:
+            user_id = f"anon_{user}_{level}"
+        else:
+            user_id = raw_id
+
+        count = int(like_msg.count or 0)
+        total = int(like_msg.total or 0)
+        dedupe_key = self._build_like_dedupe_key(like_msg, user_id, count, total)
+        if dedupe_key and dedupe_key in self.like_message_keys:
+            self.log.debug(f"点赞消息已处理过，跳过: key={dedupe_key}")
+            return
+
+        if dedupe_key:
+            self.like_message_keys.append(dedupe_key)
+            if len(self.like_message_keys) > 2000:
+                self.like_message_keys = self.like_message_keys[-1000:]
+
+        stats = self.monitored_room.stats
+        real_delta = self._apply_like_delta(stats, count, total)
+
+        self.log.info(
+            f"【点赞】[{user_id}]{user} msg+{count}, 平台total={total}, "
+            f"监控增量+{real_delta}, 累计{stats.get('total_like_count', 0)}"
+        )
+
+        fans_club_level = 0
+        if hasattr(like_msg.user, 'fans_club') and like_msg.user.fans_club and like_msg.user.fans_club.data:
+            fans_club_level = like_msg.user.fans_club.data.level or 0
+
+        data_service = self.monitored_room.manager.data_service
+
+        # 用户贡献榜按消息 count 归属（total 差值无法归属到具体用户）
+        if count > 0:
+            self.monitored_room.update_contribution(
+                user_id,
+                user,
+                like_count=count,
+                user_level=level,
+                fans_club_level=fans_club_level
+            )
+
+        # session 用监控期间真实增量入账
+        if self.current_session_id and real_delta > 0:
+            data_service.increment_session_stats(
+                self.current_session_id,
+                like_count_delta=real_delta
+            )
+
+        if real_delta <= 0 and count <= 0:
+            return
+
+        current_session_data = None
+        if self.current_session_id:
+            session = data_service.get_current_live_session(self.live_id)
+            if session:
+                current_session_data = {
+                    'id': session.id,
+                    'start_time': session.start_time.isoformat() if session.start_time else None,
+                    'end_time': session.end_time.isoformat() if session.end_time else None,
+                    'status': session.status,
+                    'total_income': session.total_income,
+                    'total_gift_count': session.total_gift_count,
+                    'total_chat_count': session.total_chat_count,
+                    'total_like_count': session.total_like_count,
+                    'peak_viewer_count': session.peak_viewer_count
+                }
+
+        self.socketio.emit(f'room_{self.live_id}_stats', {
+            'current_user_count': stats['current_user_count'],
+            'total_user_count': stats['total_user_count'],
+            'total_like_count': stats.get('total_like_count', 0),
+            'total_income': stats['total_income'],
+            'contributor_count': stats['contributor_count'],
+            'current_session': current_session_data
+        }, room=f'room_{self.live_id}')
+
     def _handle_stats_message(self, stats_msg):
         """处理统计消息"""
         current = stats_msg.total
@@ -708,6 +836,7 @@ class WebDouyinLiveFetcher:
                     'total_income': session.total_income,
                     'total_gift_count': session.total_gift_count,
                     'total_chat_count': session.total_chat_count,
+                    'total_like_count': session.total_like_count,
                     'peak_viewer_count': session.peak_viewer_count
                 }
 
@@ -722,6 +851,7 @@ class WebDouyinLiveFetcher:
             'room_error_message': room_error_message,
             'current_user_count': self.monitored_room.stats['current_user_count'],
             'total_user_count': self.monitored_room.stats['total_user_count'],
+            'total_like_count': self.monitored_room.stats.get('total_like_count', 0),
             'total_income': self.monitored_room.stats['total_income'],
             'contributor_count': self.monitored_room.stats['contributor_count'],
             'contributor_info': rank_list,
@@ -756,6 +886,7 @@ class WebDouyinLiveFetcher:
                             'total_income': session.total_income,
                             'total_gift_count': session.total_gift_count,
                             'total_chat_count': session.total_chat_count,
+                            'total_like_count': session.total_like_count,
                             'peak_viewer_count': session.peak_viewer_count
                         }
 
@@ -770,6 +901,7 @@ class WebDouyinLiveFetcher:
                             'room_error_message': room_error_message,
                             'current_user_count': self.monitored_room.stats['current_user_count'],
                             'total_user_count': self.monitored_room.stats['total_user_count'],
+                            'total_like_count': self.monitored_room.stats.get('total_like_count', 0),
                             'total_income': self.monitored_room.stats['total_income'],
                             'contributor_count': self.monitored_room.stats['contributor_count'],
                             'contributor_info': [],
@@ -839,7 +971,8 @@ class WebDouyinLiveFetcher:
                         'user_name': contributor['nickname'],
                         'score': contributor['contribution_value'],
                         'avatar': contributor['user_avatar'],
-                        'gift_count': contributor['gift_count']
+                        'gift_count': contributor['gift_count'],
+                        'like_count': contributor.get('like_count', 0)
                     }
                 self.log.info(f"从数据库加载了 {len(session_contributors)} 个贡献者到本地缓存")
             else:
@@ -850,6 +983,11 @@ class WebDouyinLiveFetcher:
             old_count = len(self.monitored_room.user_contributions)
             self.monitored_room.user_contributions.clear()
             self.log.info(f"新直播场次：清空本地贡献榜缓存（清除了{old_count}个用户）")
+
+            # 重置本场点赞基线，避免遗留上一场的累计值
+            self.monitored_room.stats['total_like_count'] = 0
+            self.monitored_room.stats['like_baseline_total'] = None
+            self.monitored_room.stats['like_last_seen_total'] = None
 
             new_session = data_service.create_live_session(
                 self.live_id,

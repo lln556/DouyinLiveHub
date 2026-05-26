@@ -258,6 +258,7 @@ class DataService:
                     func.coalesce(func.sum(LiveSession.total_income), 0),
                     func.coalesce(func.sum(LiveSession.total_gift_count), 0),
                     func.coalesce(func.sum(LiveSession.total_chat_count), 0),
+                    func.coalesce(func.sum(LiveSession.total_like_count), 0),
                     func.min(LiveSession.start_time),
                     func.max(func.coalesce(LiveSession.end_time, LiveSession.start_time))
                 ).filter(LiveSession.live_id == room.live_id).one()
@@ -281,13 +282,13 @@ class DataService:
                 ).filter(RoomStats.live_id == room.live_id).one()
 
                 first_candidates = [
-                    session_agg[4],
+                    session_agg[5],
                     chat_agg[1],
                     gift_agg[2],
                     stats_agg[0],
                 ]
                 last_candidates = [
-                    session_agg[5],
+                    session_agg[6],
                     chat_agg[2],
                     gift_agg[3],
                     stats_agg[1],
@@ -301,6 +302,7 @@ class DataService:
                 session_gift_count = int(session_agg[2] or 0)
                 chat_count = int(chat_agg[0] or 0)
                 session_chat_count = int(session_agg[3] or 0)
+                session_like_count = int(session_agg[4] or 0)
 
                 result.append({
                     'live_id': room.live_id,
@@ -314,7 +316,8 @@ class DataService:
                     'total_sessions': int(session_agg[0] or 0),
                     'total_income': gift_income if gift_income > 0 else session_income,
                     'total_gift_count': gift_count if gift_count > 0 else session_gift_count,
-                    'total_chat_count': chat_count if chat_count > 0 else session_chat_count
+                    'total_chat_count': chat_count if chat_count > 0 else session_chat_count,
+                    'total_like_count': session_like_count
                 })
 
             return result
@@ -489,7 +492,8 @@ class DataService:
 
     def update_user_contribution(self, live_id: str, anchor_name: str, user_id: str, user_name: str,
                                  gift_value: float = 0, gift_count: int = 0,
-                                 chat_count: int = 0, user_avatar: str = None,
+                                 chat_count: int = 0, like_count: int = 0,
+                                 user_avatar: str = None,
                                  gender: int = None, follower_count: int = None,
                                  following_count: int = None, age_range: int = None,
                                  fans_club_level: int = None) -> UserContribution:
@@ -507,6 +511,7 @@ class DataService:
                 contribution.total_score += gift_value
                 contribution.gift_count += gift_count
                 contribution.chat_count += chat_count
+                contribution.like_count += like_count
                 if user_avatar:
                     contribution.user_avatar = user_avatar
                 contribution.user_name = user_name  # 更新用户名
@@ -533,6 +538,7 @@ class DataService:
                     total_score=gift_value,
                     gift_count=gift_count,
                     chat_count=chat_count,
+                    like_count=like_count,
                     user_avatar=user_avatar,
                     gender=gender if gender and gender > 0 else None,
                     follower_count=follower_count if follower_count and follower_count > 0 else None,
@@ -707,6 +713,7 @@ class DataService:
                     'contribution_value': int(row.contribution_value),
                     'gift_count': int(row.gift_count),
                     'chat_count': chat_count,
+                    'like_count': int(user_contrib.like_count or 0) if user_contrib else 0,
                     'user_avatar': user_contrib.user_avatar if user_contrib else None,
                     'user_level': row.user_level,
                     'fans_club_level': user_contrib.fans_club_level if user_contrib else 0
@@ -803,6 +810,7 @@ class DataService:
                     'contribution_value': int(row.total_score or 0),
                     'gift_count': int(row.gift_count or 0),
                     'chat_count': max(int(row.chat_count or 0), extra.get('chat_count', 0)),
+                    'like_count': int(row.like_count or 0),
                     'user_avatar': row.user_avatar,
                     'user_level': extra.get('user_level', 0),
                     'fans_club_level': row.fans_club_level or 0
@@ -912,14 +920,22 @@ class DataService:
                 user_rows = session.query(
                     UserContribution.user_id,
                     UserContribution.user_avatar,
-                    UserContribution.fans_club_level
+                    UserContribution.fans_club_level,
+                    UserContribution.like_count
                 ).filter(
                     and_(
                         UserContribution.live_id == live_id,
                         UserContribution.user_id.in_(user_ids)
                     )
                 ).all()
-                user_extra = {r.user_id: {'avatar': r.user_avatar, 'fans_club_level': r.fans_club_level or 0} for r in user_rows}
+                user_extra = {
+                    r.user_id: {
+                        'avatar': r.user_avatar,
+                        'fans_club_level': r.fans_club_level or 0,
+                        'like_count': r.like_count or 0
+                    }
+                    for r in user_rows
+                }
 
             # 4. 组装结果
             contributors = []
@@ -930,6 +946,7 @@ class DataService:
                     'nickname': row.user_name or '',
                     'contribution_value': float(row.total_score),
                     'gift_count': row.gift_count,
+                    'like_count': int(extra.get('like_count') or 0),
                     'user_level': row.user_level,
                     'user_avatar': extra.get('avatar'),
                     'fans_club_level': extra.get('fans_club_level', 0)
@@ -1184,7 +1201,8 @@ class DataService:
             session.close()
 
     def increment_session_stats(self, session_id: int, income_delta: float = 0,
-                               gift_count_delta: int = 0, chat_count_delta: int = 0) -> bool:
+                               gift_count_delta: int = 0, chat_count_delta: int = 0,
+                               like_count_delta: int = 0) -> bool:
         """增量更新直播场次统计"""
         session = self.get_session()
         try:
@@ -1193,6 +1211,7 @@ class DataService:
                 session_obj.total_income += income_delta
                 session_obj.total_gift_count += gift_count_delta
                 session_obj.total_chat_count += chat_count_delta
+                session_obj.total_like_count += like_count_delta
                 session_obj.updated_at = get_china_now()
                 session.commit()
                 return True
@@ -1235,6 +1254,7 @@ class DataService:
                 'total_income': session_obj.total_income,
                 'total_gift_count': session_obj.total_gift_count,
                 'total_chat_count': session_obj.total_chat_count,
+                'total_like_count': session_obj.total_like_count,
                 'peak_viewer_count': session_obj.peak_viewer_count
             }
         finally:
@@ -1274,6 +1294,7 @@ class DataService:
                     'total_income': s.total_income,
                     'total_gift_count': s.total_gift_count,
                     'total_chat_count': s.total_chat_count,
+                    'total_like_count': s.total_like_count,
                     'peak_viewer_count': s.peak_viewer_count
                 })
             return result
@@ -1308,6 +1329,7 @@ class DataService:
             total_income = sum(s.total_income or 0 for s in sessions)
             total_gift_count = sum(s.total_gift_count or 0 for s in sessions)
             total_chat_count = sum(s.total_chat_count or 0 for s in sessions)
+            total_like_count = sum(s.total_like_count or 0 for s in sessions)
             total_sessions = len(sessions)
             live_sessions = sum(1 for s in sessions if s.status == 'live')
             ended_sessions = sum(1 for s in sessions if s.status == 'ended')
@@ -1337,6 +1359,7 @@ class DataService:
                 'total_income': total_income,
                 'total_gift_count': total_gift_count,
                 'total_chat_count': total_chat_count,
+                'total_like_count': total_like_count,
                 'peak_viewer_max': peak_viewer_max,
                 'total_duration_seconds': total_duration_seconds,
                 'avg_duration_seconds': avg_duration
@@ -1497,6 +1520,7 @@ class DataService:
                     and_(*contrib_conditions)
                 ).order_by(UserContribution.updated_at.desc()).first()
             user_avatar = user_contrib.user_avatar if user_contrib else None
+            like_count = user_contrib.like_count if user_contrib else 0
             if user_contrib and not latest_chat and not latest_gift:
                 display_name = user_contrib.user_name
                 resolved_user_id = user_contrib.user_id
@@ -1522,6 +1546,7 @@ class DataService:
                 'total_messages': chat_count + gift_count,
                 'chat_count': chat_count,
                 'gift_count': gift_count,
+                'like_count': int(like_count or 0),
                 'total_value': int(total_value)
             }
 
@@ -1726,6 +1751,7 @@ class DataService:
                         'fans_club_level': row.fans_club_level or 0,
                         'chat_count': 0,
                         'gift_count': 0,
+                        'like_count': 0,
                         'total_value': 0,
                         'last_seen_at': row.last_seen_at,
                         'user_avatar': None,
@@ -1775,6 +1801,7 @@ class DataService:
                         'fans_club_level': row.fans_club_level or 0,
                         'chat_count': row.chat_count or 0,
                         'gift_count': row.gift_count or 0,
+                        'like_count': row.like_count or 0,
                         'total_value': int(row.total_score or 0),
                         'last_seen_at': row.updated_at,
                         'user_avatar': row.user_avatar,
@@ -1798,6 +1825,7 @@ class DataService:
                             'follower_count': row.follower_count,
                             'following_count': row.following_count,
                             'age_range': row.age_range,
+                            'like_count': row.like_count or users[key].get('like_count', 0),
                             'fans_club_level': users[key]['fans_club_level'] or row.fans_club_level or 0,
                         })
 
@@ -1805,7 +1833,7 @@ class DataService:
                 users.values(),
                 key=lambda item: (
                     item['total_value'] or 0,
-                    (item['chat_count'] or 0) + (item['gift_count'] or 0),
+                    (item['chat_count'] or 0) + (item['gift_count'] or 0) + (item['like_count'] or 0),
                     item['last_seen_at'] or datetime.min.replace(tzinfo=CHINA_TZ)
                 ),
                 reverse=True

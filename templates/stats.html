@@ -362,6 +362,10 @@
                     <div class="text-xs text-gray-500 mb-1">总弹幕数</div>
                     <div class="text-xl font-bold text-green-600" v-text="formatNumber(stats.total_chat_count)"></div>
                 </div>
+                <div class="bg-white rounded-lg shadow-md p-4">
+                    <div class="text-xs text-gray-500 mb-1">总点赞数</div>
+                    <div class="text-xl font-bold text-red-500" v-text="formatNumber(stats.total_like_count)"></div>
+                </div>
             </div>
 
             <!-- 第二行：详细指标 -->
@@ -407,12 +411,13 @@
                                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">用户</th>
                                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">礼物</th>
                                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">弹幕</th>
+                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">点赞</th>
                                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">贡献值</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100">
                                 <tr v-if="contributors.length === 0">
-                                    <td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">
+                                    <td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">
                                         暂无数据
                                     </td>
                                 </tr>
@@ -438,6 +443,7 @@
                                     </td>
                                     <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(contributor.gift_count)"></td>
                                     <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(contributor.chat_count)"></td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-red-500 text-right" v-text="formatNumber(contributor.like_count || 0)"></td>
                                     <td class="px-3 py-2 whitespace-nowrap text-sm font-bold text-yellow-600 text-right" v-text="formatNumber(contributor.contribution_value)"></td>
                                 </tr>
                             </tbody>
@@ -586,7 +592,7 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                         <div class="bg-yellow-50 rounded-lg p-3">
                             <div class="text-xs text-gray-500 mb-1">总收入</div>
                             <div class="text-lg font-bold text-yellow-600" v-text="formatIncome(sessionDetail.total_income)"></div>
@@ -598,6 +604,10 @@
                         <div class="bg-green-50 rounded-lg p-3">
                             <div class="text-xs text-gray-500 mb-1">弹幕数</div>
                             <div class="text-lg font-bold text-green-600" v-text="formatNumber(sessionDetail.total_chat_count)"></div>
+                        </div>
+                        <div class="bg-red-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-500 mb-1">点赞数</div>
+                            <div class="text-lg font-bold text-red-500" v-text="formatNumber(sessionDetail.total_like_count)"></div>
                         </div>
                     </div>
 
@@ -854,6 +864,11 @@
                             <span class="ml-2 px-2 py-0.5 bg-pink-100 text-pink-600 rounded-full text-xs"
                                   v-text="userMessagesData.stats.gift_count"></span>
                         </button>
+                        <div class="user-tab-button flex-1 cursor-default">
+                            点赞
+                            <span class="ml-2 px-2 py-0.5 bg-red-100 text-red-500 rounded-full text-xs"
+                                  v-text="formatNumber(userMessagesData.stats.like_count || 0)"></span>
+                        </div>
                     </div>
                 </div>
 

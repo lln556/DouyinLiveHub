@@ -56,6 +56,7 @@ const app = new Vue({
                 total_messages: 0,
                 chat_count: 0,
                 gift_count: 0,
+                like_count: 0,
                 total_value: 0
             },
             messages: [],
@@ -679,6 +680,7 @@ const app = new Vue({
                     total_messages: 0,
                     chat_count: 0,
                     gift_count: 0,
+                    like_count: 0,
                     total_value: 0
                 },
                 messages: [],
@@ -704,6 +706,7 @@ const app = new Vue({
                     total_messages: 0,
                     chat_count: 0,
                     gift_count: 0,
+                    like_count: 0,
                     total_value: 0
                 },
                 messages: [],

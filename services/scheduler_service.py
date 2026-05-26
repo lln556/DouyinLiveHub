@@ -97,6 +97,7 @@ class SchedulerService:
                         room_id,
                         current_user_count=stats.get('current_user_count'),
                         total_user_count=stats.get('total_user_count'),
+                        total_like_count=stats.get('total_like_count'),
                         total_income=stats.get('total_income'),
                         contributor_count=stats.get('contributor_count')
                     )

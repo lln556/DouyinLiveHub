@@ -388,7 +388,7 @@
         </div>
 
         <!-- 统计卡片 -->
-        <div class="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
             <div class="stat-card bg-white rounded-xl shadow-md p-3 sm:p-4">
                 <div class="flex items-center mb-1">
                     <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center mr-2">
@@ -410,6 +410,17 @@
                     <div class="text-xs text-gray-500">累计观看</div>
                 </div>
                 <div class="text-lg sm:text-2xl font-bold text-green-600" v-text="formatNumber(stats.totalUserCount)"></div>
+            </div>
+            <div class="stat-card bg-white rounded-xl shadow-md p-3 sm:p-4">
+                <div class="flex items-center mb-1">
+                    <div class="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center mr-2">
+                        <svg class="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <div class="text-xs text-gray-500">累计点赞</div>
+                </div>
+                <div class="text-lg sm:text-2xl font-bold text-red-500" v-text="formatNumber(stats.totalLikeCount)"></div>
             </div>
             <div class="stat-card bg-white rounded-xl shadow-md p-3 sm:p-4">
                 <div class="flex items-center mb-1">
@@ -437,7 +448,7 @@
                     <span v-text="getSessionStatusText(currentSession.status)"></span>
                 </span>
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
                 <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-3 border border-blue-200">
                     <div class="flex items-center text-blue-600 mb-1">
                         <svg class="w-3.5 h-3.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
@@ -483,6 +494,15 @@
                         本场弹幕
                     </div>
                     <div class="text-sm font-bold text-green-700" v-text="formatNumber(currentSession.total_chat_count)"></div>
+                </div>
+                <div class="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-3 border border-red-200 col-span-2 sm:col-span-1">
+                    <div class="flex items-center text-red-500 mb-1">
+                        <svg class="w-3.5 h-3.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/>
+                        </svg>
+                        本场点赞
+                    </div>
+                    <div class="text-sm font-bold text-red-600" v-text="formatNumber(currentSession.total_like_count)"></div>
                 </div>
             </div>
             <div v-if="currentSession.peak_viewer_count" class="mt-4 pt-4 border-t border-gray-100">
@@ -801,6 +821,11 @@
                         <span class="ml-2 px-2 py-0.5 bg-pink-100 text-pink-600 rounded-full text-xs"
                               v-text="userMessagesData.stats.gift_count"></span>
                     </button>
+                    <div class="user-tab-button flex-1 cursor-default">
+                        点赞
+                        <span class="ml-2 px-2 py-0.5 bg-red-100 text-red-500 rounded-full text-xs"
+                              v-text="formatNumber(userMessagesData.stats.like_count || 0)"></span>
+                    </div>
                 </div>
             </div>
 
