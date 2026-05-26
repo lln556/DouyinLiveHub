@@ -8,12 +8,15 @@ from utils.logger import get_logger
 
 logger = get_logger("api_rooms")
 
-# 创建蓝图
-rooms_bp = Blueprint('rooms', __name__, url_prefix='/api/rooms')
-
 
 def init_rooms_api(data_service: DataService, room_manager, socketio):
-    """初始化房间API路由"""
+    """初始化房间API路由。
+
+    Blueprint 在此处实例化（而非模块级单例），这样每次调用都返回一个全新的
+    Blueprint，避免在测试中重复注册时触发 "setup method can no longer be
+    called" 错误。
+    """
+    rooms_bp = Blueprint('rooms', __name__, url_prefix='/api/rooms')
 
     @rooms_bp.route('', methods=['GET'])
     def list_rooms():

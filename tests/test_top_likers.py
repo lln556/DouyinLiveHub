@@ -90,19 +90,14 @@ class GetTopLikersTests(unittest.TestCase):
 
 class TopLikersApiTests(unittest.TestCase):
     def setUp(self):
-        import importlib
         from flask import Flask
-        import api.rooms as rooms_module
-
-        # 重新加载模块，确保每个测试拿到全新的 Blueprint 实例
-        # （rooms_bp 是模块级单例，注册后无法再添加路由）
-        importlib.reload(rooms_module)
+        from api.rooms import init_rooms_api
 
         self.svc = DataService('sqlite:///:memory:')
         self.svc.create_tables()
 
         app = Flask(__name__)
-        rooms_bp = rooms_module.init_rooms_api(self.svc, None, None)
+        rooms_bp = init_rooms_api(self.svc, None, None)
         app.register_blueprint(rooms_bp)
         self.client = app.test_client()
 
