@@ -737,6 +737,11 @@ class WebDouyinLiveFetcher:
         if hasattr(like_msg.user, 'fans_club') and like_msg.user.fans_club and like_msg.user.fans_club.data:
             fans_club_level = like_msg.user.fans_club.data.level or 0
 
+        # 提取用户头像，避免「只点过赞、没送过礼物」的用户在榜单里没头像
+        avatar = None
+        if hasattr(like_msg.user, 'avatar_thumb') and like_msg.user.avatar_thumb:
+            avatar = like_msg.user.avatar_thumb.url_list_list[0] if like_msg.user.avatar_thumb.url_list_list else None
+
         data_service = self.monitored_room.manager.data_service
 
         # 用户贡献榜按消息 count 归属（total 差值无法归属到具体用户）
@@ -745,6 +750,7 @@ class WebDouyinLiveFetcher:
                 user_id,
                 user,
                 like_count=count,
+                user_avatar=avatar,
                 user_level=level,
                 fans_club_level=fans_club_level
             )
