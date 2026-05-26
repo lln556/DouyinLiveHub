@@ -42,6 +42,9 @@ class MonitoredRoom:
         self.stats = {
             'current_user_count': 0,
             'total_user_count': 0,
+            'total_like_count': 0,
+            'like_baseline_total': None,
+            'like_last_seen_total': None,
             'total_income': 0,
             'contributor_count': 0
         }
@@ -484,6 +487,7 @@ class MonitoredRoom:
                             'total_income': session.total_income,
                             'total_gift_count': session.total_gift_count,
                             'total_chat_count': session.total_chat_count,
+                            'total_like_count': session.total_like_count,
                             'peak_viewer_count': session.peak_viewer_count
                         }
 
@@ -499,6 +503,7 @@ class MonitoredRoom:
                                 'room_error_message': room_error_message,
                                 'current_user_count': self.stats['current_user_count'],
                                 'total_user_count': self.stats['total_user_count'],
+                                'total_like_count': self.stats.get('total_like_count', 0),
                                 'total_income': self.stats['total_income'],
                                 'contributor_count': self.stats['contributor_count'],
                                 'contributor_info': [],
@@ -536,7 +541,8 @@ class MonitoredRoom:
         return False
 
     def update_contribution(self, user_id: str, user_name: str, gift_value: float = 0,
-                           gift_count: int = 0, chat_count: int = 0, user_avatar: str = None,
+                           gift_count: int = 0, chat_count: int = 0, like_count: int = 0,
+                           user_avatar: str = None,
                            gender: int = None, follower_count: int = None,
                            following_count: int = None, age_range: int = None,
                            fans_club_level: int = None, user_level: int = None):
@@ -547,6 +553,7 @@ class MonitoredRoom:
                 'score': 0,
                 'avatar': user_avatar,
                 'gift_count': 0,
+                'like_count': 0,
                 'fans_club_level': fans_club_level or 0,
                 'user_level': user_level or 0
             }
@@ -567,6 +574,7 @@ class MonitoredRoom:
 
         self.user_contributions[user_id]['score'] += gift_value
         self.user_contributions[user_id]['gift_count'] = self.user_contributions[user_id].get('gift_count', 0) + gift_count
+        self.user_contributions[user_id]['like_count'] = self.user_contributions[user_id].get('like_count', 0) + like_count
         logger.debug(f"[更新贡献] {user_id}={user_name}, score={self.user_contributions[user_id]['score']}, gift_count={self.user_contributions[user_id]['gift_count']}")
 
         # 同步到数据库
@@ -578,6 +586,7 @@ class MonitoredRoom:
             gift_value=gift_value,
             gift_count=gift_count,
             chat_count=chat_count,
+            like_count=like_count,
             user_avatar=user_avatar,
             gender=gender,
             follower_count=follower_count,
@@ -595,6 +604,7 @@ class MonitoredRoom:
                     'user': v['user_name'],
                     'score': v['score'],
                     'avatar': v['avatar'],
+                    'like_count': v.get('like_count', 0),
                     'fans_club_level': v.get('fans_club_level', 0),
                     'user_level': v.get('user_level', 0)
                 }

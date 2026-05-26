@@ -50,11 +50,14 @@ def migrate_database(engine):
     migrations = [
         ('chat_messages', 'fans_club_level', 'INTEGER DEFAULT 0'),
         ('gift_messages', 'fans_club_level', 'INTEGER DEFAULT 0'),
+        ('room_stats', 'total_like_count', 'INTEGER DEFAULT 0'),
+        ('user_contributions', 'like_count', 'INTEGER DEFAULT 0'),
         ('user_contributions', 'gender', 'INTEGER'),
         ('user_contributions', 'follower_count', 'INTEGER'),
         ('user_contributions', 'following_count', 'INTEGER'),
         ('user_contributions', 'age_range', 'INTEGER'),
         ('user_contributions', 'fans_club_level', 'INTEGER DEFAULT 0'),
+        ('live_sessions', 'total_like_count', 'INTEGER DEFAULT 0'),
         ('live_rooms', 'archived_at', 'DATETIME NULL'),
     ]
     with engine.connect() as conn:
@@ -339,6 +342,7 @@ def handle_join(data):
                         'total_income': session.total_income,
                         'total_gift_count': session.total_gift_count,
                         'total_chat_count': session.total_chat_count,
+                        'total_like_count': session.total_like_count,
                         'peak_viewer_count': session.peak_viewer_count
                     }
 
@@ -352,6 +356,7 @@ def handle_join(data):
                 'room_error_message': room_error_message,
                 'current_user_count': monitored_room.stats['current_user_count'],
                 'total_user_count': monitored_room.stats['total_user_count'],
+                'total_like_count': monitored_room.stats.get('total_like_count', 0),
                 'total_income': monitored_room.stats['total_income'],
                 'contributor_count': monitored_room.stats['contributor_count'],
                 'contributor_info': rank_list,

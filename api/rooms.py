@@ -333,6 +333,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                         'total_score': c.total_score,
                         'gift_count': c.gift_count,
                         'chat_count': c.chat_count,
+                        'like_count': c.like_count,
                         'user_avatar': c.user_avatar
                     }
                     for c in contributors
@@ -430,6 +431,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'anchor_name': latest_stats.anchor_name if latest_stats else None,
                     'current_user_count': latest_stats.current_user_count if latest_stats else 0,
                     'total_user_count': latest_stats.total_user_count if latest_stats else 0,
+                    'total_like_count': latest_stats.total_like_count if latest_stats else 0,
                     'total_income': latest_stats.total_income if latest_stats else 0,
                     'contributor_count': latest_stats.contributor_count if latest_stats else 0,
                     'stats_at': latest_stats.stats_at.isoformat() if latest_stats else None
@@ -441,6 +443,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                         'anchor_name': s.anchor_name,
                         'current_user_count': s.current_user_count,
                         'total_user_count': s.total_user_count,
+                        'total_like_count': s.total_like_count,
                         'total_income': s.total_income,
                         'contributor_count': s.contributor_count,
                         'stats_at': s.stats_at.isoformat() if s.stats_at else None
@@ -494,6 +497,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'total_income': current_session.total_income,
                     'total_gift_count': current_session.total_gift_count,
                     'total_chat_count': current_session.total_chat_count,
+                    'total_like_count': current_session.total_like_count,
                     'peak_viewer_count': current_session.peak_viewer_count
                 }
             })
