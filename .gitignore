@@ -93,5 +93,8 @@ dmypy.json
 # OMX
 .omx/
 
+# Superpowers brainstorm sessions
+.superpowers/
+
 # Git attributes export-ignore
 EXPORT_IGNORE_DATA = true

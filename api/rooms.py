@@ -8,12 +8,15 @@ from utils.logger import get_logger
 
 logger = get_logger("api_rooms")
 
-# 创建蓝图
-rooms_bp = Blueprint('rooms', __name__, url_prefix='/api/rooms')
-
 
 def init_rooms_api(data_service: DataService, room_manager, socketio):
-    """初始化房间API路由"""
+    """初始化房间API路由。
+
+    Blueprint 在此处实例化（而非模块级单例），这样每次调用都返回一个全新的
+    Blueprint，避免在测试中重复注册时触发 "setup method can no longer be
+    called" 错误。
+    """
+    rooms_bp = Blueprint('rooms', __name__, url_prefix='/api/rooms')
 
     @rooms_bp.route('', methods=['GET'])
     def list_rooms():
@@ -463,6 +466,28 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             return jsonify(summary)
         except Exception as e:
             logger.error(f"获取统计摘要失败: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @rooms_bp.route('/top-likers', methods=['GET'])
+    def get_top_likers_route():
+        """累积点赞榜（基于 UserContribution.like_count）。
+        Query 参数：
+        - live_id: 可选，不传则跨房间
+        - limit: 可选，默认 100，上限 1000
+        """
+        try:
+            live_id = (request.args.get('live_id') or '').strip() or None
+            limit = min(int(request.args.get('limit', 100)), 1000)
+
+            likers = data_service.get_top_likers(live_id=live_id, limit=limit)
+
+            return jsonify({
+                'likers': likers,
+                'total': len(likers),
+                'source': 'summary'
+            })
+        except Exception as e:
+            logger.error(f"获取累积点赞榜失败: {e}")
             return jsonify({'error': str(e)}), 500
 
     @rooms_bp.route('/<live_id>/current-session', methods=['GET'])

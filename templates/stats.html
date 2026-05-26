@@ -239,20 +239,21 @@
                 <div class="lg:col-span-6">
                     <label class="block text-xs font-medium text-gray-600 mb-1">统计周期</label>
                     <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        <button @click="timeRange='7days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近7天</button>
-                        <button @click="timeRange='30days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近30天</button>
-                        <button @click="timeRange='month'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按月份</button>
-                        <button @click="timeRange='year'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按年份</button>
-                        <button @click="timeRange='total'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">总榜</button>
-                        <button @click="timeRange='custom'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">自定义</button>
+                        <button @click="timeRange='7days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近7天</button>
+                        <button @click="timeRange='30days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近30天</button>
+                        <button @click="timeRange='month'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按月份</button>
+                        <button @click="timeRange='year'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按年份</button>
+                        <button @click="timeRange='total'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">总榜</button>
+                        <button @click="timeRange='custom'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">自定义</button>
                     </div>
                 </div>
 
                 <div class="lg:col-span-3 flex items-end">
                     <button
                         @click="loadData"
-                        :disabled="loading && hasSearched"
-                        class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 text-sm font-medium">
+                        :disabled="(loading && hasSearched) || activeRankTab === 'like'"
+                        :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''"
+                        :class="['w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 text-sm font-medium', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                         <span v-text="loading && hasSearched ? '查询中...' : '查询统计'"></span>
                     </button>
                 </div>
@@ -261,20 +262,20 @@
             <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 <div v-if="timeRange === 'month'" class="md:col-span-3">
                     <label class="block text-xs font-medium text-gray-600 mb-1">月份</label>
-                    <input v-model="selectedMonth" type="month" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                    <input v-model="selectedMonth" type="month" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                 </div>
                 <div v-if="timeRange === 'year'" class="md:col-span-3">
                     <label class="block text-xs font-medium text-gray-600 mb-1">年份</label>
-                    <input v-model="selectedYear" type="number" min="2000" max="2100" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                    <input v-model="selectedYear" type="number" min="2000" max="2100" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                 </div>
                 <template v-if="timeRange === 'custom'">
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">开始日期</label>
-                        <input v-model="customStartDate" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <input v-model="customStartDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                     </div>
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">结束日期</label>
-                        <input v-model="customEndDate" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <input v-model="customEndDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
                     </div>
                 </template>
 
@@ -392,21 +393,47 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- 左侧：贡献榜 -->
                 <div class="bg-white rounded-lg shadow-md">
+                    <!-- 用户排行 Tab 切换 -->
+                    <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
+                        <button
+                            @click="setRankTab('gift')"
+                            :class="['px-3 py-1.5 rounded-md text-sm font-semibold transition-all',
+                                activeRankTab === 'gift'
+                                    ? 'bg-yellow-500 text-white shadow-sm'
+                                    : 'bg-white text-gray-500 border border-gray-200 hover:bg-yellow-50']">
+                            🏆 贡献榜
+                        </button>
+                        <button
+                            @click="setRankTab('like')"
+                            :class="['px-3 py-1.5 rounded-md text-sm font-semibold transition-all',
+                                activeRankTab === 'like'
+                                    ? 'bg-red-500 text-white shadow-sm'
+                                    : 'bg-white text-gray-500 border border-gray-200 hover:bg-red-50']">
+                            ❤️ 点赞榜
+                        </button>
+                        <span v-if="activeRankTab === 'like'" class="ml-auto text-xs text-gray-400">
+                            ⚠️ 点赞榜仅看累积，不支持时间筛选
+                        </span>
+                    </div>
                     <div class="px-4 py-3 border-b flex justify-between items-center bg-gradient-to-r from-yellow-50 to-orange-50">
                         <h2 class="text-base font-bold text-gray-800">
-                            <svg class="w-4 h-4 inline mr-1 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <svg v-if="activeRankTab === 'gift'" class="w-4 h-4 inline mr-1 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
                                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                             </svg>
-                            贡献榜
+                            <svg v-else class="w-4 h-4 inline mr-1 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/>
+                            </svg>
+                            <span v-text="activeRankTab === 'gift' ? '贡献榜' : '累积点赞榜'"></span>
                         </h2>
-                        <span class="text-xs text-gray-500">共 {{ contributorPagination.total }} 人</span>
+                        <span v-if="activeRankTab === 'gift'" class="text-xs text-gray-500">共 {{ contributorPagination.total }} 人</span>
+                        <span v-else class="text-xs text-gray-500">共 {{ likers.length }} 人</span>
                     </div>
 
                     <!-- 表格 -->
                     <div class="contributor-table">
                         <table class="w-full">
                             <thead class="bg-gray-50 sticky top-0">
-                                <tr>
+                                <tr v-if="activeRankTab === 'gift'">
                                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">排名</th>
                                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">用户</th>
                                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">礼物</th>
@@ -414,7 +441,16 @@
                                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">点赞</th>
                                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">贡献值</th>
                                 </tr>
+                                <tr v-else>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">排名</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">用户</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">所在房间</th>
+                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">礼物</th>
+                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">累积点赞</th>
+                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">粉丝团</th>
+                                </tr>
                             </thead>
+                            <template v-if="activeRankTab === 'gift'">
                             <tbody class="divide-y divide-gray-100">
                                 <tr v-if="contributors.length === 0">
                                     <td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">
@@ -447,11 +483,50 @@
                                     <td class="px-3 py-2 whitespace-nowrap text-sm font-bold text-yellow-600 text-right" v-text="formatNumber(contributor.contribution_value)"></td>
                                 </tr>
                             </tbody>
+                            </template>
+                            <template v-else>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-if="likers.length === 0">
+                                    <td colspan="6" class="text-center py-12 text-gray-400">
+                                        <div class="text-4xl mb-2">❤️</div>
+                                        <p v-text="likersLoading ? '加载中...' : '暂无累积点赞数据'"></p>
+                                    </td>
+                                </tr>
+                                <tr v-for="(liker, index) in likers" :key="'like-' + liker.live_id + '-' + liker.user_id"
+                                    class="hover:bg-red-50 transition-colors">
+                                    <td class="px-3 py-2 whitespace-nowrap">
+                                        <span v-if="index === 0" class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-r from-red-400 to-red-600 text-white font-bold text-xs">1</span>
+                                        <span v-else-if="index === 1" class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-r from-gray-300 to-gray-500 text-white font-bold text-xs">2</span>
+                                        <span v-else-if="index === 2" class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-r from-yellow-700 to-yellow-900 text-white font-bold text-xs">3</span>
+                                        <span v-else class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 font-bold text-xs" v-text="index + 1"></span>
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <img v-if="liker.user_avatar" :src="liker.user_avatar" class="w-8 h-8 rounded-full mr-2 object-cover">
+                                            <div v-else class="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold mr-2"
+                                                 v-text="(liker.user_name || liker.user_id || 'U').substring(0, 1)"></div>
+                                            <span class="text-sm font-medium text-gray-900 truncate clickable-user"
+                                                  @click="openLikerMessages(liker)"
+                                                  v-text="liker.user_name || liker.user_id"></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-500" v-text="liker.anchor_name || liker.live_id"></td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(liker.gift_count)"></td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-right">
+                                        <span class="font-bold text-red-500" v-text="formatNumber(liker.like_count)"></span>
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-right">
+                                        <img v-if="liker.fans_club_level" :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'" style="height: 18px; object-fit: contain; display: inline-block;">
+                                        <span v-else class="text-gray-400 text-xs italic">—</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            </template>
                         </table>
                     </div>
 
                     <!-- 分页 -->
-                    <div v-if="contributorPagination.total_pages > 1" class="px-4 py-3 border-t flex items-center justify-between bg-gray-50">
+                    <div v-if="activeRankTab === 'gift' && contributorPagination.total_pages > 1" class="px-4 py-3 border-t flex items-center justify-between bg-gray-50">
                         <div class="text-xs text-gray-500">
                             第 <span class="font-medium" v-text="contributorPagination.page"></span> / <span v-text="contributorPagination.total_pages"></span> 页
                         </div>

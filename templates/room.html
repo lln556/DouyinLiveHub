@@ -377,9 +377,6 @@
                         </svg>
                         返回列表
                     </a>
-                    <a href="/history" class="btn-primary flex-1 sm:flex-none px-4 sm:px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 font-medium text-center">
-                        历史数据
-                    </a>
                     <a href="/logout" class="btn-primary flex-1 sm:flex-none px-4 sm:px-6 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 font-medium text-center">
                         退出登录
                     </a>
@@ -644,12 +641,32 @@
             <div class="bg-white rounded-xl shadow-lg overflow-hidden">
                 <div class="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-100 bg-gradient-to-r from-yellow-50 to-orange-50">
                     <div class="flex flex-col gap-3">
-                        <h2 class="text-lg font-bold text-gray-800">
-                            <svg class="w-5 h-5 inline mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                            </svg>
-                            贡献榜 TOP100
-                        </h2>
+                        <div class="flex gap-1 -mb-3">
+                            <button
+                                @click="setRankTab('gift')"
+                                :class="['flex-1 py-2 text-sm font-semibold transition-all duration-200 border-b-2',
+                                    activeRankTab === 'gift'
+                                        ? 'border-yellow-500 text-yellow-700 bg-gradient-to-t from-yellow-100/40 to-transparent'
+                                        : 'border-transparent text-gray-400 hover:text-yellow-600']">
+                                🏆 贡献榜
+                                <span v-if="stats.contributorInfo && stats.contributorInfo.length"
+                                      class="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                                      :class="activeRankTab === 'gift' ? 'bg-yellow-200 text-yellow-800' : 'bg-gray-200 text-gray-500'"
+                                      v-text="stats.contributorInfo.length"></span>
+                            </button>
+                            <button
+                                @click="setRankTab('like')"
+                                :class="['flex-1 py-2 text-sm font-semibold transition-all duration-200 border-b-2',
+                                    activeRankTab === 'like'
+                                        ? 'border-red-500 text-red-600 bg-gradient-to-t from-red-100/40 to-transparent'
+                                        : 'border-transparent text-gray-400 hover:text-red-500']">
+                                ❤️ 点赞榜
+                                <span v-if="stats.likeRankInfo && stats.likeRankInfo.length"
+                                      class="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                                      :class="activeRankTab === 'like' ? 'bg-red-200 text-red-700' : 'bg-gray-200 text-gray-500'"
+                                      v-text="stats.likeRankInfo.length"></span>
+                            </button>
+                        </div>
                         <form @submit.prevent="searchUserByName" class="relative">
                             <input
                                 v-model.trim="userNameSearch"
@@ -703,49 +720,99 @@
                     </div>
                 </div>
                 <div class="contributor-container">
-                    <div v-if="!stats.contributorInfo || stats.contributorInfo.length === 0" class="text-center text-gray-400 py-12">
-                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                        <p>暂无贡献数据</p>
-                    </div>
-                    <div
-                        v-for="(contributor, index) in stats.contributorInfo"
-                        :key="index"
-                        class="p-3 sm:p-4 border-b border-gray-100 hover:bg-gradient-to-r hover:from-yellow-50 hover:to-orange-50 transition-all duration-200">
-                        <div class="flex items-center">
-                            <div :class="['rank-badge mr-2 sm:mr-3 flex-shrink-0', getRankClass(contributor.rank)]" v-text="contributor.rank"></div>
-                            <img
-                                v-if="contributor.avatar"
-                                :src="contributor.avatar"
-                                class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0"
-                                alt="用户头像">
-                            <img
-                                v-else
-                                src="https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/default-avatar.jpeg"
-                                class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0"
-                                alt="默认头像">
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-1">
-                                    <span class="font-semibold text-gray-800 truncate cursor-pointer hover:text-blue-600 transition-colors"
-                                         @click="openUserMessagesModal(contributor.user_id, contributor.user)"
-                                         v-text="contributor.user"></span>
-                                    <img v-if="contributor.user_level"
-                                         :src="'/level_img/level_' + contributor.user_level + '.png'"
-                                         style="height: 18px; object-fit: contain; flex-shrink: 0;">
-                                    <img v-if="contributor.fans_club_level"
-                                         :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'"
-                                         style="height: 18px; object-fit: contain; flex-shrink: 0;">
-                                </div>
-                                <div class="text-sm text-gray-500">
-                                    <svg class="w-3.5 h-3.5 inline mr-1 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                                    </svg>
-                                    <span class="font-semibold text-yellow-600" v-text="formatNumber(contributor.score)"></span>
+                    <!-- 贡献榜分支 -->
+                    <template v-if="activeRankTab === 'gift'">
+                        <div v-if="!stats.contributorInfo || stats.contributorInfo.length === 0" class="text-center text-gray-400 py-12">
+                            <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <p>暂无贡献数据</p>
+                        </div>
+                        <div
+                            v-for="(contributor, index) in stats.contributorInfo"
+                            :key="'gift-' + index"
+                            class="p-3 sm:p-4 border-b border-gray-100 hover:bg-gradient-to-r hover:from-yellow-50 hover:to-orange-50 transition-all duration-200">
+                            <div class="flex items-center">
+                                <div :class="['rank-badge mr-2 sm:mr-3 flex-shrink-0', getRankClass(contributor.rank)]" v-text="contributor.rank"></div>
+                                <img
+                                    v-if="contributor.avatar"
+                                    :src="contributor.avatar"
+                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0"
+                                    alt="用户头像">
+                                <img
+                                    v-else
+                                    src="https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/default-avatar.jpeg"
+                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0"
+                                    alt="默认头像">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-1">
+                                        <span class="font-semibold text-gray-800 truncate cursor-pointer hover:text-blue-600 transition-colors"
+                                             @click="openUserMessagesModal(contributor.user_id, contributor.user)"
+                                             v-text="contributor.user"></span>
+                                        <img v-if="contributor.user_level"
+                                             :src="'/level_img/level_' + contributor.user_level + '.png'"
+                                             style="height: 18px; object-fit: contain; flex-shrink: 0;">
+                                        <img v-if="contributor.fans_club_level"
+                                             :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'"
+                                             style="height: 18px; object-fit: contain; flex-shrink: 0;">
+                                    </div>
+                                    <div class="text-sm text-gray-500">
+                                        <svg class="w-3.5 h-3.5 inline mr-1 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                        </svg>
+                                        <span class="font-semibold text-yellow-600" v-text="formatNumber(contributor.score)"></span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </template>
+
+                    <!-- 点赞榜分支 -->
+                    <template v-else>
+                        <div v-if="!stats.likeRankInfo || stats.likeRankInfo.length === 0" class="text-center text-gray-400 py-12">
+                            <div class="text-4xl mb-2">❤️</div>
+                            <p>本场暂无点赞数据</p>
+                            <p class="text-xs mt-2">等待观众开始点赞...</p>
+                        </div>
+                        <div
+                            v-for="(liker, index) in stats.likeRankInfo"
+                            :key="'like-' + index"
+                            class="p-3 sm:p-4 border-b border-gray-100 hover:bg-gradient-to-r hover:from-red-50 hover:to-pink-50 transition-all duration-200">
+                            <div class="flex items-center">
+                                <div :class="['rank-badge mr-2 sm:mr-3 flex-shrink-0', getRankClass(liker.rank)]" v-text="liker.rank"></div>
+                                <img
+                                    v-if="liker.avatar"
+                                    :src="liker.avatar"
+                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-red-200 flex-shrink-0"
+                                    alt="用户头像">
+                                <img
+                                    v-else
+                                    src="https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/default-avatar.jpeg"
+                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-red-200 flex-shrink-0"
+                                    alt="默认头像">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-1">
+                                        <span class="font-semibold text-gray-800 truncate cursor-pointer hover:text-blue-600 transition-colors"
+                                             @click="openUserMessagesModal(liker.user_id, liker.user)"
+                                             v-text="liker.user"></span>
+                                        <img v-if="liker.user_level"
+                                             :src="'/level_img/level_' + liker.user_level + '.png'"
+                                             style="height: 18px; object-fit: contain; flex-shrink: 0;">
+                                        <img v-if="liker.fans_club_level"
+                                             :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'"
+                                             style="height: 18px; object-fit: contain; flex-shrink: 0;">
+                                    </div>
+                                    <div class="text-sm text-gray-500">
+                                        <svg class="w-3.5 h-3.5 inline mr-1 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/>
+                                        </svg>
+                                        <span class="font-semibold text-red-500" v-text="formatNumber(liker.like_count)"></span>
+                                        <span class="text-xs text-gray-400 ml-1">次点赞</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>
