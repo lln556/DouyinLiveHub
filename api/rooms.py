@@ -337,7 +337,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                         'gift_count': c.gift_count,
                         'chat_count': c.chat_count,
                         'like_count': c.like_count,
-                        'user_avatar': c.user_avatar
+                        'user_avatar': c.user_avatar,
+                        'user_level': c.user_level or 0,
+                        'fans_club_level': c.fans_club_level or 0
                     }
                     for c in contributors
                 ]

@@ -53,6 +53,29 @@ class DataService:
         """释放数据库连接池资源。"""
         self.engine.dispose()
 
+    @staticmethod
+    def _latest_profile_fields(user_contrib: UserContribution = None,
+                               fallback_nickname: str = '',
+                               fallback_user_level: int = 0,
+                               fallback_fans_club_level: int = 0) -> Dict[str, Any]:
+        """统一解析榜单展示身份，优先使用最新采集到的累计资料。"""
+        user_level = 0
+        fans_club_level = 0
+        if user_contrib:
+            user_level = user_contrib.user_level or 0
+            fans_club_level = user_contrib.fans_club_level or 0
+
+        return {
+            'nickname': (
+                user_contrib.user_name
+                if user_contrib and user_contrib.user_name
+                else fallback_nickname
+            ),
+            'user_avatar': user_contrib.user_avatar if user_contrib else None,
+            'user_level': user_level or fallback_user_level or 0,
+            'fans_club_level': fans_club_level or fallback_fans_club_level or 0,
+        }
+
     # ==================== 直播间操作 ====================
 
     def create_live_room(self, live_id: str, **kwargs) -> LiveRoom:
@@ -496,7 +519,8 @@ class DataService:
                                  user_avatar: str = None,
                                  gender: int = None, follower_count: int = None,
                                  following_count: int = None, age_range: int = None,
-                                 fans_club_level: int = None) -> UserContribution:
+                                 fans_club_level: int = None,
+                                 user_level: int = None) -> UserContribution:
         """更新用户贡献"""
         session = self.get_session()
         try:
@@ -528,6 +552,8 @@ class DataService:
                     contribution.age_range = age_range
                 if fans_club_level is not None and fans_club_level > 0:
                     contribution.fans_club_level = fans_club_level
+                if user_level is not None and user_level > 0:
+                    contribution.user_level = user_level
                 contribution.updated_at = get_china_now()
             else:
                 contribution = UserContribution(
@@ -544,7 +570,8 @@ class DataService:
                     follower_count=follower_count if follower_count and follower_count > 0 else None,
                     following_count=following_count if following_count and following_count > 0 else None,
                     age_range=age_range if age_range and age_range > 0 else None,
-                    fans_club_level=fans_club_level if fans_club_level and fans_club_level > 0 else 0
+                    fans_club_level=fans_club_level if fans_club_level and fans_club_level > 0 else 0,
+                    user_level=user_level if user_level and user_level > 0 else 0
                 )
                 session.add(contribution)
 
@@ -689,6 +716,11 @@ class DataService:
                     latest_message.anchor_name if latest_message and latest_message.anchor_name else
                     row.anchor_name
                 )
+                fallback_user_level = (
+                    latest_message.user_level
+                    if latest_message and latest_message.user_level
+                    else row.user_level or 0
+                )
 
                 # 计算弹幕数
                 chat_conditions = [ChatMessage.user_id == row.user_id]
@@ -705,18 +737,25 @@ class DataService:
                     and_(*chat_conditions)
                 ).scalar() or 0
 
+                profile = self._latest_profile_fields(
+                    user_contrib,
+                    fallback_nickname=nickname,
+                    fallback_user_level=fallback_user_level,
+                    fallback_fans_club_level=0,
+                )
+
                 contributors.append({
                     'live_id': row.live_id,
                     'anchor_name': anchor_name,
                     'user_id': row.user_id,
-                    'nickname': nickname,
+                    'nickname': profile['nickname'],
                     'contribution_value': int(row.contribution_value),
                     'gift_count': int(row.gift_count),
                     'chat_count': chat_count,
                     'like_count': int(user_contrib.like_count or 0) if user_contrib else 0,
-                    'user_avatar': user_contrib.user_avatar if user_contrib else None,
-                    'user_level': row.user_level,
-                    'fans_club_level': user_contrib.fans_club_level if user_contrib else 0
+                    'user_avatar': profile['user_avatar'],
+                    'user_level': profile['user_level'],
+                    'fans_club_level': profile['fans_club_level']
                 })
 
             return {
@@ -802,18 +841,24 @@ class DataService:
             contributors = []
             for row in rows:
                 extra = message_extra.get((row.live_id, row.user_id), {})
+                profile = self._latest_profile_fields(
+                    row,
+                    fallback_nickname=row.user_name,
+                    fallback_user_level=extra.get('user_level', 0),
+                    fallback_fans_club_level=row.fans_club_level or 0,
+                )
                 contributors.append({
                     'live_id': row.live_id,
                     'anchor_name': row.anchor_name,
                     'user_id': row.user_id,
-                    'nickname': row.user_name,
+                    'nickname': profile['nickname'],
                     'contribution_value': int(row.total_score or 0),
                     'gift_count': int(row.gift_count or 0),
                     'chat_count': max(int(row.chat_count or 0), extra.get('chat_count', 0)),
                     'like_count': int(row.like_count or 0),
-                    'user_avatar': row.user_avatar,
-                    'user_level': extra.get('user_level', 0),
-                    'fans_club_level': row.fans_club_level or 0
+                    'user_avatar': profile['user_avatar'],
+                    'user_level': profile['user_level'],
+                    'fans_club_level': profile['fans_club_level']
                 })
 
             return {
@@ -850,6 +895,7 @@ class DataService:
                 'user_id': r.user_id,
                 'user_name': r.user_name,
                 'user_avatar': r.user_avatar,
+                'user_level': r.user_level or 0,
                 'like_count': int(r.like_count or 0),
                 'gift_count': int(r.gift_count or 0),
                 'fans_club_level': r.fans_club_level or 0,
@@ -949,7 +995,9 @@ class DataService:
             if user_ids:
                 user_rows = session.query(
                     UserContribution.user_id,
+                    UserContribution.user_name,
                     UserContribution.user_avatar,
+                    UserContribution.user_level,
                     UserContribution.fans_club_level,
                     UserContribution.like_count
                 ).filter(
@@ -960,7 +1008,9 @@ class DataService:
                 ).all()
                 user_extra = {
                     r.user_id: {
+                        'user_name': r.user_name,
                         'avatar': r.user_avatar,
+                        'user_level': r.user_level or 0,
                         'fans_club_level': r.fans_club_level or 0,
                         'like_count': r.like_count or 0
                     }
@@ -973,11 +1023,11 @@ class DataService:
                 extra = user_extra.get(row.user_id, {})
                 contributors.append({
                     'user_id': row.user_id,
-                    'nickname': row.user_name or '',
+                    'nickname': extra.get('user_name') or row.user_name or '',
                     'contribution_value': float(row.total_score),
                     'gift_count': row.gift_count,
                     'like_count': int(extra.get('like_count') or 0),
-                    'user_level': row.user_level,
+                    'user_level': extra.get('user_level') or row.user_level or 0,
                     'user_avatar': extra.get('avatar'),
                     'fans_club_level': extra.get('fans_club_level', 0)
                 })

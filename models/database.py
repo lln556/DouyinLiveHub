@@ -152,6 +152,7 @@ class UserContribution(Base):
     chat_count = Column(Integer, nullable=False, default=0, comment='弹幕次数')
     like_count = Column(Integer, nullable=False, default=0, comment='点赞次数')
     user_avatar = Column(String(500), nullable=True, comment='用户头像URL')
+    user_level = Column(Integer, nullable=True, default=0, comment='用户等级')
     gender = Column(Integer, nullable=True, comment='性别: 0未知 1男 2女')
     follower_count = Column(Integer, nullable=True, comment='粉丝数')
     following_count = Column(Integer, nullable=True, comment='关注数')

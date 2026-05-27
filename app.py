@@ -57,6 +57,7 @@ def migrate_database(engine):
         ('user_contributions', 'following_count', 'INTEGER'),
         ('user_contributions', 'age_range', 'INTEGER'),
         ('user_contributions', 'fans_club_level', 'INTEGER DEFAULT 0'),
+        ('user_contributions', 'user_level', 'INTEGER DEFAULT 0'),
         ('live_sessions', 'total_like_count', 'INTEGER DEFAULT 0'),
         ('live_rooms', 'archived_at', 'DATETIME NULL'),
     ]
