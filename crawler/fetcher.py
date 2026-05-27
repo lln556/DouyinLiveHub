@@ -115,6 +115,15 @@ def generateMsToken(length=182):
 
 class DouyinLiveWebFetcher:
     """抖音直播数据爬虫核心类"""
+    BUSINESS_MESSAGE_METHODS = {
+        'WebcastChatMessage',
+        'WebcastGiftMessage',
+        'WebcastLikeMessage',
+        'WebcastMemberMessage',
+        'WebcastSocialMessage',
+        'WebcastFansclubMessage',
+        'WebcastEmojiChatMessage',
+    }
 
     def __init__(self, live_id, abogus_file=None, proxy_enabled=None, proxy_url=None, douyin_cookie=None):
         """
@@ -138,6 +147,14 @@ class DouyinLiveWebFetcher:
         self.session = requests.Session()
         self.request_timeout = (5, 15)
         self.status_error_message = None
+        self.ws = None
+        self._ws_state_lock = threading.Lock()
+        self._ws_watchdog_stop = threading.Event()
+        self._ws_watchdog_thread = None
+        self._ws_connect_started_at = None
+        self._ws_connected_at = None
+        self._ws_last_data_at = None
+        self._ws_last_business_at = None
         self.live_id = live_id
         self.host = "https://www.douyin.com/"
         self.live_url = "https://live.douyin.com/"
@@ -547,6 +564,105 @@ class DouyinLiveWebFetcher:
             self.log.debug(f"获取直播间状态时出错: {e}")
             return False
 
+    def _reset_websocket_watchdog_state(self, started_at=None):
+        now = time.monotonic() if started_at is None else started_at
+        with self._ws_state_lock:
+            self._ws_connect_started_at = now
+            self._ws_connected_at = None
+            self._ws_last_data_at = None
+            self._ws_last_business_at = None
+
+    def record_websocket_open(self, now=None):
+        now = time.monotonic() if now is None else now
+        with self._ws_state_lock:
+            self._ws_connected_at = now
+            self._ws_last_data_at = None
+            self._ws_last_business_at = now
+
+    def record_websocket_data(self, now=None):
+        now = time.monotonic() if now is None else now
+        with self._ws_state_lock:
+            self._ws_last_data_at = now
+
+    def record_websocket_method(self, method, now=None):
+        now = time.monotonic() if now is None else now
+        with self._ws_state_lock:
+            self._ws_last_data_at = now
+            if method in self.BUSINESS_MESSAGE_METHODS:
+                self._ws_last_business_at = now
+
+    def _start_websocket_watchdog(self):
+        if self._ws_watchdog_thread and self._ws_watchdog_thread.is_alive():
+            return
+        self._ws_watchdog_stop.clear()
+        self._ws_watchdog_thread = threading.Thread(
+            target=self._websocket_watchdog_loop,
+            daemon=True,
+            name=f"ws-watchdog-{self.live_id}"
+        )
+        self._ws_watchdog_thread.start()
+
+    def _stop_websocket_watchdog(self):
+        self._ws_watchdog_stop.set()
+
+    def _websocket_watchdog_loop(self):
+        while not self._ws_watchdog_stop.wait(config.WS_WATCHDOG_INTERVAL):
+            if self._check_websocket_watchdog():
+                break
+
+    def _check_websocket_watchdog(self, now=None):
+        now = time.monotonic() if now is None else now
+        reason = self._get_websocket_watchdog_close_reason(now)
+        if not reason:
+            return False
+        self._close_websocket_for_watchdog(reason)
+        return True
+
+    def _get_websocket_watchdog_close_reason(self, now):
+        with self._ws_state_lock:
+            connect_started_at = self._ws_connect_started_at
+            connected_at = self._ws_connected_at
+            last_data_at = self._ws_last_data_at
+            last_business_at = self._ws_last_business_at
+
+        if connect_started_at and not connected_at:
+            if now - connect_started_at >= config.WS_CONNECT_TIMEOUT:
+                return f"连接建立超时 {config.WS_CONNECT_TIMEOUT}s"
+
+        if connected_at:
+            data_reference = last_data_at or connected_at
+            if now - data_reference >= config.WS_DATA_SILENCE_TIMEOUT:
+                return f"数据静默超时 {config.WS_DATA_SILENCE_TIMEOUT}s"
+
+            if (
+                config.WS_BUSINESS_WATCHDOG_ENABLED
+                and last_data_at
+                and last_data_at > connected_at
+            ):
+                business_reference = last_business_at or connected_at
+                if now - business_reference >= config.WS_BUSINESS_SILENCE_TIMEOUT:
+                    return f"业务消息静默超时 {config.WS_BUSINESS_SILENCE_TIMEOUT}s"
+
+        return None
+
+    def _close_websocket_for_watchdog(self, reason):
+        self.log.warning(f"WebSocket看门狗触发: {reason}，关闭连接以重连")
+        ws = self.ws
+        if not ws:
+            return
+
+        sock = getattr(ws, 'sock', None)
+        if sock:
+            try:
+                sock.close()
+            except Exception as e:
+                self.log.debug(f"关闭底层 socket 失败（已忽略）: {e}")
+
+        try:
+            ws.close()
+        except Exception as e:
+            self.log.debug(f"关闭 WebSocket 失败（已忽略）: {e}")
+
     def _connectWebSocket(self):
         """
         连接抖音直播间websocket服务器，请求直播间数据
@@ -580,6 +696,8 @@ class DouyinLiveWebFetcher:
                                          on_message=self._wsOnMessage,
                                          on_error=self._wsOnError,
                                          on_close=self._wsOnClose)
+        self._reset_websocket_watchdog_state()
+        self._start_websocket_watchdog()
         try:
             # 代理配置
             if self.proxy_enabled and self.proxy_url:
@@ -597,12 +715,14 @@ class DouyinLiveWebFetcher:
         except Exception:
             self.stop()
             raise
+        finally:
+            self._stop_websocket_watchdog()
 
     def _sendHeartbeat(self):
         """
         发送心跳包
         """
-        while True:
+        while not self._ws_watchdog_stop.is_set():
             try:
                 heartbeat = PushFrame(payload_type='hb').SerializeToString()
                 self.ws.send(heartbeat, websocket.ABNF.OPCODE_PING)
@@ -611,14 +731,15 @@ class DouyinLiveWebFetcher:
                 self.log.error(f"心跳包检测错误: {e}")
                 break
             else:
-                time.sleep(5)
+                time.sleep(config.WS_HEARTBEAT_INTERVAL)
 
     def _wsOnOpen(self, ws):
         """
         连接建立成功
         """
+        self.record_websocket_open()
         self.log.success("WebSocket连接成功")
-        threading.Thread(target=self._sendHeartbeat).start()
+        threading.Thread(target=self._sendHeartbeat, daemon=True).start()
 
     def _wsOnMessage(self, ws, message):
         """
@@ -626,6 +747,7 @@ class DouyinLiveWebFetcher:
         :param ws: websocket实例
         :param message: 数据
         """
+        self.record_websocket_data()
 
         # 根据proto结构体解析对象
         package = PushFrame().parse(message)
@@ -643,6 +765,7 @@ class DouyinLiveWebFetcher:
         if response.messages_list:
             for msg in response.messages_list:
                 method = msg.method
+                self.record_websocket_method(method)
                 try:
                     {
                         'WebcastChatMessage': self._parseChatMsg,  # 聊天消息

@@ -60,6 +60,12 @@ SOCKETIO_CORS_ALLOWED_ORIGINS = os.getenv('SOCKETIO_CORS_ALLOWED_ORIGINS', '*')
 SOCKETIO_LOGGER = os.getenv('SOCKETIO_LOGGER', 'False') == 'True'
 SOCKETIO_ENGINEIO_LOGGER = os.getenv('SOCKETIO_ENGINEIO_LOGGER', 'False') == 'True'
 SOCKETIO_ASYNC_MODE = os.getenv('SOCKETIO_ASYNC_MODE', 'threading')
+WS_HEARTBEAT_INTERVAL = int(os.getenv('WS_HEARTBEAT_INTERVAL', '5'))  # WebSocket心跳间隔(秒)
+WS_WATCHDOG_INTERVAL = int(os.getenv('WS_WATCHDOG_INTERVAL', '10'))  # WebSocket看门狗检查间隔(秒)
+WS_CONNECT_TIMEOUT = int(os.getenv('WS_CONNECT_TIMEOUT', '60'))  # WebSocket连接建立超时(秒)
+WS_DATA_SILENCE_TIMEOUT = int(os.getenv('WS_DATA_SILENCE_TIMEOUT', '60'))  # WebSocket无数据超时(秒)
+WS_BUSINESS_WATCHDOG_ENABLED = os.getenv('WS_BUSINESS_WATCHDOG_ENABLED', 'False') == 'True'
+WS_BUSINESS_SILENCE_TIMEOUT = int(os.getenv('WS_BUSINESS_SILENCE_TIMEOUT', '300'))  # 无交互消息超时(秒)
 
 # 监控配置
 MONITOR_RECONNECT_INTERVAL = int(os.getenv('MONITOR_RECONNECT_INTERVAL', '30'))  # 重连间隔(秒)
