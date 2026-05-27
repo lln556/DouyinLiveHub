@@ -909,6 +909,13 @@ class DataService:
         :param live_id: 房间ID，None 表示所有房间
         :return: {'min_date': 'YYYY-MM-DD', 'max_date': 'YYYY-MM-DD'}
         """
+        def format_date(value):
+            if not value:
+                return None
+            if isinstance(value, str):
+                return value[:10]
+            return value.strftime('%Y-%m-%d')
+
         session = self.get_session()
         try:
             conditions = []
@@ -933,8 +940,8 @@ class DataService:
             ).order_by(LiveSession.start_time.desc()).limit(1).scalar()
 
             return {
-                'min_date': min_date_query.strftime('%Y-%m-%d') if min_date_query else None,
-                'max_date': max_date_query.strftime('%Y-%m-%d') if max_date_query else None
+                'min_date': format_date(min_date_query),
+                'max_date': format_date(max_date_query)
             }
         finally:
             session.close()
@@ -1431,6 +1438,29 @@ class DataService:
                     total_duration_seconds += (end - start).total_seconds()
 
             avg_duration = total_duration_seconds / total_sessions if total_sessions > 0 else 0
+            trend_by_date = {}
+            for s in sessions:
+                if not s.start_time:
+                    continue
+                start = s.start_time
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=CHINA_TZ)
+                date_key = start.astimezone(CHINA_TZ).date().isoformat()
+                row = trend_by_date.setdefault(date_key, {
+                    'date': date_key,
+                    'sessions': 0,
+                    'income': 0,
+                    'gift_count': 0,
+                    'chat_count': 0,
+                    'like_count': 0,
+                    'peak_viewer': 0,
+                })
+                row['sessions'] += 1
+                row['income'] += s.total_income or 0
+                row['gift_count'] += s.total_gift_count or 0
+                row['chat_count'] += s.total_chat_count or 0
+                row['like_count'] += s.total_like_count or 0
+                row['peak_viewer'] = max(row['peak_viewer'], s.peak_viewer_count or 0)
 
             return {
                 'total_sessions': total_sessions,
@@ -1442,7 +1472,8 @@ class DataService:
                 'total_like_count': total_like_count,
                 'peak_viewer_max': peak_viewer_max,
                 'total_duration_seconds': total_duration_seconds,
-                'avg_duration_seconds': avg_duration
+                'avg_duration_seconds': avg_duration,
+                'trend': [trend_by_date[key] for key in sorted(trend_by_date.keys())]
             }
         finally:
             session.close()
