@@ -211,18 +211,6 @@ def stats_page():
     return render_template('stats.html')
 
 
-@app.route('/leaderboard')
-def leaderboard_page():
-    """贡献榜页面"""
-    return render_template('leaderboard.html')
-
-
-@app.route('/sessions')
-def sessions_page():
-    """场次记录页面"""
-    return render_template('sessions.html')
-
-
 @app.route('/history')
 def history_page():
     """历史数据页"""
