@@ -3,6 +3,7 @@ WebSocket处理器
 扩展核心抓取类，添加数据库存储和Socket.IO推送
 """
 import gzip
+import threading
 from typing import TYPE_CHECKING
 
 import websocket
@@ -161,6 +162,7 @@ class WebDouyinLiveFetcher:
     def _wsOnMessage(self, ws, message):
         """处理WebSocket消息（重写原有方法）"""
         try:
+            self._fetcher.record_websocket_data()
             package = PushFrame().parse(message)
             response = Response().parse(gzip.decompress(package.payload))
 
@@ -177,6 +179,7 @@ class WebDouyinLiveFetcher:
             if response.messages_list:
                 for msg in response.messages_list:
                     method = msg.method
+                    self._fetcher.record_websocket_method(method)
                     try:
                         if method == 'WebcastChatMessage':
                             self._handle_chat_message(ChatMessage().parse(msg.payload))
@@ -927,6 +930,8 @@ class WebDouyinLiveFetcher:
 
     def _wsOnOpen(self, ws):
         """WebSocket连接建立"""
+        self._fetcher.record_websocket_open()
+        threading.Thread(target=self._fetcher._sendHeartbeat, daemon=True).start()
         self.log.success("WebSocket连接已建立")
 
         # 重置计数器（连接成功说明开播了）
