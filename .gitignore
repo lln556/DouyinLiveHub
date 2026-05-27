@@ -90,6 +90,9 @@ dmypy.json
 # Claude
 .claude/
 
+# OMC (oh-my-claudecode)
+.omc/
+
 # OMX
 .omx/
 
