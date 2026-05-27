@@ -9,238 +9,8 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        .tab-btn {
-            @apply px-4 py-2 rounded-t-lg;
-        }
         [v-cloak] {
             display: none !important;
-        }
-        .tab-btn.active {
-            @apply bg-blue-500 text-white;
-        }
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 50;
-        }
-        .modal-content {
-            background: white;
-            border-radius: 8px;
-            max-height: 90vh;
-            overflow-y: auto;
-            width: 90%;
-            max-width: 1200px;
-        }
-        .stats-main-grid {
-            align-items: start;
-        }
-        .rank-card,
-        .sessions-card {
-            min-width: 0;
-        }
-        .rank-card {
-            display: flex;
-            flex-direction: column;
-        }
-        .contributor-table {
-            max-height: min(600px, 70vh);
-            overflow: auto;
-        }
-        .sessions-table {
-            max-height: 24rem;
-            overflow: auto;
-        }
-        @media (min-width: 1024px) {
-            .rank-card,
-            .sessions-card {
-                max-height: calc(100vh - 2rem);
-            }
-            .rank-card {
-                overflow: hidden;
-            }
-            .contributor-table {
-                flex: 1;
-                min-height: 0;
-                max-height: none;
-            }
-            .sessions-card {
-                position: sticky;
-                top: 1rem;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-            }
-            .sessions-table {
-                flex: 1;
-                min-height: 0;
-                max-height: none;
-            }
-        }
-        .contributor-table::-webkit-scrollbar {
-            width: 6px;
-        }
-        .contributor-table::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 3px;
-        }
-        .contributor-table::-webkit-scrollbar-thumb {
-            background: #cbd5e0;
-            border-radius: 3px;
-        }
-        .contributor-table::-webkit-scrollbar-thumb:hover {
-            background: #a0aec0;
-        }
-        /* 用户消息模态框样式 */
-        .user-modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            animation: fadeIn 0.2s ease-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-20px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-        .user-modal-content {
-            background: white;
-            border-radius: 16px;
-            width: 90%;
-            max-width: 600px;
-            max-height: 85vh;
-            overflow-y: auto;
-            animation: slideIn 0.2s ease-out;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        }
-        .user-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 24px;
-            border-radius: 16px 16px 0 0;
-            color: white;
-        }
-        .user-avatar-large {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            background: rgba(255, 255, 255, 0.2);
-        }
-        .user-stats-card {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
-            padding: 12px 16px;
-            backdrop-filter: blur(10px);
-        }
-        .user-tab-button {
-            padding: 12px 20px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            border-bottom: 3px solid transparent;
-            color: #6B7280;
-        }
-        .user-tab-button:hover {
-            background: rgba(0, 0, 0, 0.03);
-        }
-        .user-tab-button.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-            background: linear-gradient(to top, rgba(102, 126, 234, 0.08), transparent);
-        }
-        .user-message-card {
-            padding: 14px 18px;
-            margin: 10px 0;
-            border-radius: 12px;
-            transition: all 0.2s ease;
-        }
-        .user-message-card:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
-        .user-chat-card {
-            background: linear-gradient(135deg, #E3F2FD 0%, #F3E5F5 100%);
-            border-left: 4px solid #2196F3;
-        }
-        .user-gift-card {
-            background: linear-gradient(135deg, #FCE4EC 0%, #FFF3E0 100%);
-            border-left: 4px solid #E91E63;
-        }
-        .user-messages-body {
-            height: 400px;
-            display: flex;
-            flex-direction: column;
-        }
-        .user-messages-list {
-            flex: 1;
-            overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: #CBD5E0 #EDF2F7;
-        }
-        .user-messages-list::-webkit-scrollbar {
-            width: 6px;
-        }
-        .user-messages-list::-webkit-scrollbar-track {
-            background: #EDF2F7;
-            border-radius: 3px;
-        }
-        .user-messages-list::-webkit-scrollbar-thumb {
-            background-color: #CBD5E0;
-            border-radius: 3px;
-        }
-        .user-messages-placeholder {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .user-messages-fade {
-            animation: userMsgFadeIn 0.2s ease-out;
-        }
-        @keyframes userMsgFadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        .user-modal-close-btn {
-            transition: all 0.2s ease;
-        }
-        .user-modal-close-btn:hover {
-            transform: rotate(90deg);
-        }
-        .clickable-user {
-            cursor: pointer;
-            transition: color 0.2s ease;
-        }
-        .clickable-user:hover {
-            color: #3B82F6;
-        }
-        /* 粉丝团等级图标 */
-        .fans-club-icon {
-            height: 18px;
-            vertical-align: middle;
-            margin-right: 2px;
-            display: inline-block;
         }
     </style>
 </head>
@@ -280,21 +50,20 @@
                 <div class="lg:col-span-6">
                     <label class="block text-xs font-medium text-gray-600 mb-1">统计周期</label>
                     <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        <button @click="timeRange='7days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近7天</button>
-                        <button @click="timeRange='30days'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">近30天</button>
-                        <button @click="timeRange='month'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按月份</button>
-                        <button @click="timeRange='year'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">按年份</button>
-                        <button @click="timeRange='total'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">总榜</button>
-                        <button @click="timeRange='custom'; onTimeRangeChange()" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">自定义</button>
+                        <button @click="timeRange='7days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近7天</button>
+                        <button @click="timeRange='30days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近30天</button>
+                        <button @click="timeRange='month'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按月份</button>
+                        <button @click="timeRange='year'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按年份</button>
+                        <button @click="timeRange='total'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">总榜</button>
+                        <button @click="timeRange='custom'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">自定义</button>
                     </div>
                 </div>
 
                 <div class="lg:col-span-3 flex items-end">
                     <button
                         @click="loadData"
-                        :disabled="(loading && hasSearched) || activeRankTab === 'like'"
-                        :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''"
-                        :class="['w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 text-sm font-medium', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                        :disabled="loading && hasSearched"
+                        :class="['w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 text-sm font-medium']">
                         <span v-text="loading && hasSearched ? '查询中...' : '查询统计'"></span>
                     </button>
                 </div>
@@ -303,80 +72,22 @@
             <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 <div v-if="timeRange === 'month'" class="md:col-span-3">
                     <label class="block text-xs font-medium text-gray-600 mb-1">月份</label>
-                    <input v-model="selectedMonth" type="month" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                    <input v-model="selectedMonth" type="month" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                 </div>
                 <div v-if="timeRange === 'year'" class="md:col-span-3">
                     <label class="block text-xs font-medium text-gray-600 mb-1">年份</label>
-                    <input v-model="selectedYear" type="number" min="2000" max="2100" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                    <input v-model="selectedYear" type="number" min="2000" max="2100" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                 </div>
                 <template v-if="timeRange === 'custom'">
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">开始日期</label>
-                        <input v-model="customStartDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                        <input v-model="customStartDate" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                     </div>
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">结束日期</label>
-                        <input v-model="customEndDate" type="date" :min="minDate" :max="maxDate" :disabled="activeRankTab === 'like'" :title="activeRankTab === 'like' ? '点赞榜仅看累积，不支持时间筛选' : ''" :class="['w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm', activeRankTab === 'like' ? 'opacity-50 cursor-not-allowed' : '']">
+                        <input v-model="customEndDate" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                     </div>
                 </template>
-
-                <div class="md:col-span-6">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">按用户名查消息</label>
-                    <form @submit.prevent="searchStatsUserByName" class="relative">
-                        <input
-                            v-model.trim="userNameSearch"
-                            @focus="userSearchFocused = true"
-                            @blur="setTimeout(() => userSearchFocused = false, 180)"
-                            type="text"
-                            class="w-full min-w-0 pl-9 pr-20 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                            placeholder="输入用户名自动搜索">
-                        <svg class="absolute left-3 top-2.5 w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
-                        </svg>
-                        <button
-                            type="submit"
-                            :disabled="userSearchLoading"
-                            class="absolute right-1 top-1 px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 disabled:bg-indigo-300 text-xs font-medium">
-                            <span v-text="userSearchLoading ? '搜索中' : '搜索'"></span>
-                        </button>
-
-                        <div v-if="userSearchFocused && (userSearchLoading || userSearchResults.length > 0 || userSearchHasSearched || userSearchError)"
-                             class="absolute left-0 right-0 top-full mt-2 border rounded-lg overflow-hidden bg-white shadow-xl z-40">
-                            <div v-if="userSearchLoading" class="px-3 py-4 text-center text-sm text-gray-400">搜索中...</div>
-                            <div v-else-if="userSearchResults.length > 0" class="max-h-80 overflow-y-auto">
-                                <button
-                                    v-for="user in userSearchResults"
-                                    :key="user.live_id + '_' + user.user_id"
-                                    @mousedown.prevent="selectStatsSearchedUser(user)"
-                                    class="w-full px-3 py-2 flex items-center justify-between hover:bg-indigo-50 border-b last:border-b-0 text-left">
-                                    <div class="flex items-center min-w-0">
-                                        <img v-if="user.user_avatar" :src="user.user_avatar" class="w-8 h-8 rounded-full mr-2 object-cover">
-                                        <div v-else class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold mr-2"
-                                             v-text="(user.nickname || user.user_id || 'U').substring(0, 1)"></div>
-                                        <div class="min-w-0">
-                                            <div class="text-sm font-medium text-gray-800 truncate" v-text="user.nickname || user.user_id"></div>
-                                            <div class="text-xs text-gray-400 truncate">
-                                                <span v-text="user.anchor_name || user.live_id || '全部房间'"></span>
-                                                <span class="mx-1">·</span>
-                                                <span v-text="'ID: ' + user.user_id"></span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="text-right text-xs text-gray-500 flex-shrink-0 ml-3">
-                                        <div v-text="'消息 ' + formatNumber(user.total_messages || 0)"></div>
-                                        <div class="text-yellow-600" v-text="formatNumber(user.total_value || 0) + ' 钻石'"></div>
-                                    </div>
-                                </button>
-                            </div>
-                            <div v-else class="px-3 py-4 text-center text-sm" :class="userSearchError ? 'text-red-500' : 'text-gray-400'">
-                                <span v-text="userSearchError || '未找到匹配用户'"></span>
-                            </div>
-                            <div v-if="userSearchResults.length > 0" class="px-3 py-2 bg-gray-50 text-xs text-gray-400">
-                                点击用户查看当前筛选范围内的详细消息
-                            </div>
-                        </div>
-                    </form>
-                </div>
             </div>
         </div>
 
@@ -384,7 +95,7 @@
         <!-- 统计概览 - 查询后显示 -->
         <div v-if="hasSearched">
             <!-- 第一行：核心指标 -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <div class="bg-white rounded-lg shadow-md p-4">
                     <div class="text-xs text-gray-500 mb-1">直播场次</div>
                     <div class="text-xl font-bold text-blue-600" v-text="stats.total_sessions || 0"></div>
