@@ -593,7 +593,8 @@ class MonitoredRoom:
             follower_count=follower_count,
             following_count=following_count,
             age_range=age_range,
-            fans_club_level=fans_club_level
+            fans_club_level=fans_club_level,
+            user_level=user_level
         )
 
     def get_contribution_rank(self, limit: int = 100) -> list:

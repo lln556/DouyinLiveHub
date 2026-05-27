@@ -127,7 +127,9 @@ class WebDouyinLiveFetcher:
                             'score': contributor['contribution_value'],
                             'avatar': contributor['user_avatar'],
                             'gift_count': contributor['gift_count'],
-                            'like_count': contributor.get('like_count', 0)
+                            'like_count': contributor.get('like_count', 0),
+                            'user_level': contributor.get('user_level', 0),
+                            'fans_club_level': contributor.get('fans_club_level', 0)
                         }
                     self.log.info(f"预加载了 {len(session_contributors)} 个贡献者到本地缓存")
         except Exception as e:
@@ -986,7 +988,9 @@ class WebDouyinLiveFetcher:
                         'score': contributor['contribution_value'],
                         'avatar': contributor['user_avatar'],
                         'gift_count': contributor['gift_count'],
-                        'like_count': contributor.get('like_count', 0)
+                        'like_count': contributor.get('like_count', 0),
+                        'user_level': contributor.get('user_level', 0),
+                        'fans_club_level': contributor.get('fans_club_level', 0)
                     }
                 self.log.info(f"从数据库加载了 {len(session_contributors)} 个贡献者到本地缓存")
             else:
