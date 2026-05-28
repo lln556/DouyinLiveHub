@@ -1,5 +1,5 @@
 /**
- * 房间详情页 - 实时监控页面逻辑
+ * 房间详情页 - 实时数据页面逻辑
  */
 const app = new Vue({
     el: '#app',
@@ -251,7 +251,7 @@ const app = new Vue({
             }
         },
         async stopMonitoring() {
-            if (!confirm('确定要停止监控吗？')) return;
+            if (!confirm('确定要停止记录吗？')) return;
 
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/stop`, {
@@ -269,7 +269,7 @@ const app = new Vue({
             }
         },
         async restoreRoom() {
-            if (!confirm('确定要把这个直播间恢复到主页吗？恢复后可重新启动监控。')) return;
+            if (!confirm('确定要把这个直播间恢复到主页吗？恢复后可重新启动记录。')) return;
 
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/restore`, {
@@ -345,7 +345,7 @@ const app = new Vue({
             });
 
             this.socket.on(`room_${this.liveId}_stats`, (data) => {
-                // 实时更新监控状态
+                // 实时更新运行状态
                 if (this.room) {
                     if (data.room_status) {
                         this.room.status = data.room_status;
@@ -517,7 +517,7 @@ const app = new Vue({
         },
         getStatusText(status) {
             switch (status) {
-                case 'monitoring': return '监控中';
+                case 'monitoring': return '运行中';
                 case 'stopped': return '已停止';
                 case 'offline': return '等待中';
                 case 'waiting': return '等待中';

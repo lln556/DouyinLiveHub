@@ -455,7 +455,7 @@ if __name__ == '__main__':
             app,
             debug=config.DEBUG,
             host='0.0.0.0',
-            port=7654,
+            port=int(os.environ.get('APP_PORT', '7654')),
             allow_unsafe_werkzeug=True
         )
     except KeyboardInterrupt:

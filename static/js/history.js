@@ -46,7 +46,7 @@ const app = new Vue({
             }
         },
         async restoreRoom(liveId) {
-            if (!confirm('确定要把这个直播间恢复到主页吗？恢复后可重新启动监控。')) return;
+            if (!confirm('确定要把这个直播间恢复到主页吗？恢复后可重新启动记录。')) return;
 
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/restore`, {
