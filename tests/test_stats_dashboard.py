@@ -190,6 +190,10 @@ class StatsDashboardMarkupTests(unittest.TestCase):
         # 场均卡片需保留 tooltip 说明分母语义
         self.assertIn('未产生收入的场次不计入分母', html)
         self.assertIn('零点赞场次不计入分母', html)
+        # 用户卡片：点赞作为只读 chip，不是 tab
+        self.assertIn('user-stat-chips', html)
+        self.assertIn('data-chip="like"', html)
+        self.assertNotIn('user-tab-button flex-1 cursor-default', html)
 
 
 if __name__ == '__main__':
