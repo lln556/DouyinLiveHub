@@ -22,6 +22,7 @@ const app = new Vue({
         stats: {
             total_rooms: 0,
             monitoring_rooms: 0,
+            waiting_rooms: 0,
             stopped_rooms: 0,
             archived_rooms: 0
         },
@@ -321,7 +322,7 @@ const app = new Vue({
             // 基于 status 字段判断监控状态
             switch (room.status) {
                 case 'monitoring': return '监控中';
-                case 'offline': return '等待中';
+                case 'offline': return '等待开播';
                 case 'stopped': return '已停止';
                 case 'error': return '错误';
                 default: return '未知';

@@ -236,22 +236,31 @@ class DataService:
         return self.archive_live_room(live_id)
 
     def get_stats_summary(self) -> Dict[str, int]:
-        """获取统计摘要"""
+        """获取统计摘要
+
+        三态分离（不再把所有非 monitoring 房间都算成"已停止"）：
+        - monitoring_rooms: 监控线程运行中且已连上直播 (status='monitoring')
+        - waiting_rooms:    监控线程运行中但直播未开播 (status='offline')
+        - stopped_rooms:    用户主动停止监控 (status='stopped')；含 error 等其它非活动态
+        """
         session = self.get_session()
         try:
             active_condition = and_(LiveRoom.archived_at.is_(None), LiveRoom.status != 'archived')
             archived_condition = or_(LiveRoom.archived_at.isnot(None), LiveRoom.status == 'archived')
-            total_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition).scalar()
-            monitoring_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'monitoring').scalar()
-            h24_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.monitor_type == '24h').scalar()
-            archived_rooms = session.query(func.count(LiveRoom.live_id)).filter(archived_condition).scalar()
+            total_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition).scalar() or 0
+            monitoring_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'monitoring').scalar() or 0
+            waiting_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'offline').scalar() or 0
+            stopped_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'stopped').scalar() or 0
+            h24_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.monitor_type == '24h').scalar() or 0
+            archived_rooms = session.query(func.count(LiveRoom.live_id)).filter(archived_condition).scalar() or 0
 
             return {
-                'total_rooms': total_rooms or 0,
-                'monitoring_rooms': monitoring_rooms or 0,
-                'h24_rooms': h24_rooms or 0,
-                'stopped_rooms': (total_rooms or 0) - (monitoring_rooms or 0),
-                'archived_rooms': archived_rooms or 0
+                'total_rooms': total_rooms,
+                'monitoring_rooms': monitoring_rooms,
+                'waiting_rooms': waiting_rooms,
+                'stopped_rooms': stopped_rooms,
+                'h24_rooms': h24_rooms,
+                'archived_rooms': archived_rooms,
             }
         finally:
             session.close()
