@@ -41,4 +41,18 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=8.0",
+    "pytest-playwright>=0.5",
+    "pytest-base-url>=2.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "e2e: 端到端浏览器测试",
+    "integration: API 集成测试",
+]
