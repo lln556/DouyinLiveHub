@@ -145,8 +145,8 @@ class StatsDashboardDataTests(unittest.TestCase):
         self.assertEqual(stats['total_sessions'], 3)
         self.assertEqual(stats['total_income'], 400)
         self.assertEqual(stats['total_like_count'], 2000)
-        self.assertEqual(stats['avg_income'], 200)
-        self.assertEqual(stats['avg_like_count'], 1000)
+        self.assertEqual(stats['avg_income_per_active_session'], 200)
+        self.assertEqual(stats['avg_likes_per_active_session'], 1000)
 
 
 class StatsDashboardMarkupTests(unittest.TestCase):
@@ -187,6 +187,9 @@ class StatsDashboardMarkupTests(unittest.TestCase):
         self.assertIn('formatDurationParts(seconds)', script)
         self.assertIn('@change="autoLoadSelectedRoomStats"', html)
         self.assertIn('v-text="formatAvgLikes()"', html)
+        # 场均卡片需保留 tooltip 说明分母语义
+        self.assertIn('未产生收入的场次不计入分母', html)
+        self.assertIn('零点赞场次不计入分母', html)
 
 
 if __name__ == '__main__':

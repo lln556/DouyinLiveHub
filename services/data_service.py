@@ -1418,14 +1418,19 @@ class DataService:
             total_chat_count = sum(s.total_chat_count or 0 for s in sessions)
             total_like_count = sum(s.total_like_count or 0 for s in sessions)
             total_sessions = len(sessions)
+            # Directive: 每个"场均"指标的分母用各自的"有效场次"，不要用 total_sessions。
+            # 零值场次会拉低均值，且不同指标的稀疏程度不同（如未开播场次没有时长，
+            # 未带货场次没有收入），分母必须按指标特化。新增 avg_gift_count / avg_chat_count
+            # 时也请遵循同样规则。
             income_sessions = [s for s in sessions if (s.total_income or 0) > 0]
             like_sessions = [s for s in sessions if (s.total_like_count or 0) > 0]
-            avg_income = (
+            duration_sessions = [s for s in sessions if s.start_time]
+            avg_income_per_active_session = (
                 total_income / len(income_sessions)
                 if income_sessions
                 else 0
             )
-            avg_like_count = (
+            avg_likes_per_active_session = (
                 total_like_count / len(like_sessions)
                 if like_sessions
                 else 0
@@ -1434,22 +1439,26 @@ class DataService:
             ended_sessions = sum(1 for s in sessions if s.status == 'ended')
             peak_viewer_max = max((s.peak_viewer_count or 0) for s in sessions) if sessions else 0
 
-            # 计算总时长
+            # 计算总时长。LiveSession.start_time 当前 schema 强制非空，
+            # 这里仍保留 start_time 过滤作为防御性 guard：避免未来 schema 放开 nullable
+            # 或外部工具直插脏数据时，分子分母不同源导致均值被稀释。
             total_duration_seconds = 0
-            for s in sessions:
-                if s.start_time:
-                    # 确保 start_time 和 end_time 都是带时区的
-                    start = s.start_time
-                    if start.tzinfo is None:
-                        start = start.replace(tzinfo=CHINA_TZ)
+            for s in duration_sessions:
+                start = s.start_time
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=CHINA_TZ)
 
-                    end = s.end_time if s.end_time else get_china_now()
-                    if end.tzinfo is None:
-                        end = end.replace(tzinfo=CHINA_TZ)
+                end = s.end_time if s.end_time else get_china_now()
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=CHINA_TZ)
 
-                    total_duration_seconds += (end - start).total_seconds()
+                total_duration_seconds += (end - start).total_seconds()
 
-            avg_duration = total_duration_seconds / total_sessions if total_sessions > 0 else 0
+            avg_duration = (
+                total_duration_seconds / len(duration_sessions)
+                if duration_sessions
+                else 0
+            )
             trend_by_date = {}
             for s in sessions:
                 if not s.start_time:
@@ -1482,8 +1491,8 @@ class DataService:
                 'total_gift_count': total_gift_count,
                 'total_chat_count': total_chat_count,
                 'total_like_count': total_like_count,
-                'avg_income': avg_income,
-                'avg_like_count': avg_like_count,
+                'avg_income_per_active_session': avg_income_per_active_session,
+                'avg_likes_per_active_session': avg_likes_per_active_session,
                 'peak_viewer_max': peak_viewer_max,
                 'total_duration_seconds': total_duration_seconds,
                 'avg_duration_seconds': avg_duration,

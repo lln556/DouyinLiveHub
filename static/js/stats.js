@@ -907,11 +907,11 @@ const app = new Vue({
             }
         },
         formatAvgIncome() {
-            const avg = Number(this.stats.avg_income || 0);
+            const avg = Number(this.stats.avg_income_per_active_session || 0);
             return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 钻石';
         },
         formatAvgLikes() {
-            const avg = Number(this.stats.avg_like_count || 0);
+            const avg = Number(this.stats.avg_likes_per_active_session || 0);
             return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 次';
         },
         formatDuration(seconds) {
