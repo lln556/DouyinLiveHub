@@ -261,7 +261,7 @@
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 14px;
             margin-bottom: 22px;
         }
@@ -850,12 +850,17 @@
             <div class="stat-card" style="--stat-color: var(--jade);">
                 <div class="stat-value" v-text="stats.monitoring_rooms"></div>
                 <div class="stat-label">监控中</div>
-                <div class="stat-note">线程正在运行</div>
+                <div class="stat-note">线程运行 · 直播中</div>
+            </div>
+            <div class="stat-card" style="--stat-color: var(--amber);">
+                <div class="stat-value" v-text="stats.waiting_rooms || 0"></div>
+                <div class="stat-label">等待开播</div>
+                <div class="stat-note">线程运行 · 轮询等待</div>
             </div>
             <div class="stat-card" style="--stat-color: var(--slate);">
                 <div class="stat-value" v-text="stats.stopped_rooms"></div>
                 <div class="stat-label">已停止</div>
-                <div class="stat-note">等待手动启动</div>
+                <div class="stat-note">用户手动停止</div>
             </div>
             <div class="stat-card" style="--stat-color: var(--accent);">
                 <div class="stat-value" v-text="stats.archived_rooms || 0"></div>
