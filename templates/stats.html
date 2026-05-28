@@ -169,6 +169,11 @@
             object-fit: cover;
             background: #e5e7eb;
         }
+        .user-avatar-fallback {
+            background: linear-gradient(135deg, #fbbf24, #ec4899);
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
         .user-header {
             padding: 24px;
             color: white;
@@ -184,6 +189,50 @@
         .user-tab-button.active {
             color: #2563eb;
             border-bottom: 2px solid #2563eb;
+        }
+        .user-stat-chips {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 16px;
+        }
+        @media (max-width: 480px) {
+            .user-stat-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .user-stat-chip {
+            background: rgba(0, 0, 0, 0.22);
+            border-radius: 8px;
+            padding: 8px 12px 10px;
+            text-align: center;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+        .user-stat-chip::after {
+            content: '';
+            position: absolute;
+            left: 10px;
+            right: 10px;
+            bottom: 0;
+            height: 2px;
+            background: var(--chip-accent, transparent);
+            border-radius: 1px;
+        }
+        .user-stat-chip[data-chip="messages"] { --chip-accent: #93c5fd; }
+        .user-stat-chip[data-chip="chat"] { --chip-accent: #67e8f9; }
+        .user-stat-chip[data-chip="gift"] { --chip-accent: #f9a8d4; }
+        .user-stat-chip[data-chip="like"] { --chip-accent: #fb7185; }
+        .user-stat-chip[data-chip="like"] .user-stat-chip-value { color: #fecdd3; }
+        .user-stat-chip-label {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.75);
+            margin-bottom: 2px;
+            letter-spacing: 0.5px;
+        }
+        .user-stat-chip-value {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.2;
         }
         .user-messages-body {
             min-height: 260px;
@@ -298,6 +347,64 @@
                         <input v-model="customEndDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                     </div>
                 </template>
+
+                <div class="md:col-span-6">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">按用户名查消息</label>
+                    <form @submit.prevent="searchStatsUserByName" class="relative">
+                        <input
+                            v-model.trim="userNameSearch"
+                            @focus="userSearchFocused = true"
+                            @blur="setTimeout(() => userSearchFocused = false, 180)"
+                            type="text"
+                            class="w-full min-w-0 pl-9 pr-20 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                            placeholder="输入用户名自动搜索">
+                        <svg class="absolute left-3 top-2.5 w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
+                        </svg>
+                        <button
+                            type="submit"
+                            :disabled="userSearchLoading"
+                            class="absolute right-1 top-1 px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 disabled:bg-indigo-300 text-xs font-medium">
+                            <span v-text="userSearchLoading ? '搜索中' : '搜索'"></span>
+                        </button>
+
+                        <div v-if="userSearchFocused && (userSearchLoading || userSearchResults.length > 0 || userSearchHasSearched || userSearchError)"
+                             class="absolute left-0 right-0 top-full mt-2 border rounded-lg overflow-hidden bg-white shadow-xl z-40">
+                            <div v-if="userSearchLoading" class="px-3 py-4 text-center text-sm text-gray-400">搜索中...</div>
+                            <div v-else-if="userSearchResults.length > 0" class="max-h-80 overflow-y-auto">
+                                <button
+                                    v-for="user in userSearchResults"
+                                    :key="user.live_id + '_' + user.user_id"
+                                    @mousedown.prevent="selectStatsSearchedUser(user)"
+                                    class="w-full px-3 py-2 flex items-center justify-between hover:bg-indigo-50 border-b last:border-b-0 text-left">
+                                    <div class="flex items-center min-w-0">
+                                        <img v-if="user.user_avatar" :src="user.user_avatar" class="w-8 h-8 rounded-full mr-2 object-cover">
+                                        <div v-else class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold mr-2"
+                                             v-text="(user.nickname || user.user_id || 'U').substring(0, 1)"></div>
+                                        <div class="min-w-0">
+                                            <div class="text-sm font-medium text-gray-800 truncate" v-text="user.nickname || user.user_id"></div>
+                                            <div class="text-xs text-gray-400 truncate">
+                                                <span v-text="user.anchor_name || user.live_id || '全部房间'"></span>
+                                                <span class="mx-1">·</span>
+                                                <span v-text="'ID: ' + user.user_id"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right text-xs text-gray-500 flex-shrink-0 ml-3">
+                                        <div v-text="'消息 ' + formatNumber(user.total_messages || 0)"></div>
+                                        <div class="text-yellow-600" v-text="formatNumber(user.total_value || 0) + ' 钻石'"></div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div v-else class="px-3 py-4 text-center text-sm" :class="userSearchError ? 'text-red-500' : 'text-gray-400'">
+                                <span v-text="userSearchError || '未找到匹配用户'"></span>
+                            </div>
+                            <div v-if="userSearchResults.length > 0" class="px-3 py-2 bg-gray-50 text-xs text-gray-400">
+                                点击用户查看当前筛选范围内的详细消息
+                            </div>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -889,7 +996,7 @@
                                 v-if="userMessagesData.user.avatar"
                                 :src="userMessagesData.user.avatar"
                                 class="user-avatar-large mr-4">
-                            <div v-else class="user-avatar-large flex items-center justify-center text-2xl font-bold mr-4"
+                            <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-2xl font-bold mr-4"
                                  v-text="(userMessagesData.user.nickname || userMessagesData.user.user_id || 'U').substring(0, 1)"></div>
                             <div>
                                 <h2 class="text-xl font-bold flex items-center">
@@ -923,6 +1030,26 @@
                             <span class="text-white text-opacity-70">粉丝</span>
                         </div>
                     </div>
+
+                    <!-- 互动统计 chips（点赞作为只读 KPI，与其它指标并列展示，不再伪装成 tab） -->
+                    <div class="user-stat-chips">
+                        <div class="user-stat-chip" data-chip="messages">
+                            <div class="user-stat-chip-label">消息</div>
+                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.total_messages || 0)"></div>
+                        </div>
+                        <div class="user-stat-chip" data-chip="chat">
+                            <div class="user-stat-chip-label">弹幕</div>
+                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.chat_count || 0)"></div>
+                        </div>
+                        <div class="user-stat-chip" data-chip="gift">
+                            <div class="user-stat-chip-label">礼物</div>
+                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.gift_count || 0)"></div>
+                        </div>
+                        <div class="user-stat-chip" data-chip="like" title="点赞为累计计数，无消息列表">
+                            <div class="user-stat-chip-label">点赞</div>
+                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.like_count || 0)"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 标签页 -->
@@ -949,11 +1076,6 @@
                             <span class="ml-2 px-2 py-0.5 bg-pink-100 text-pink-600 rounded-full text-xs"
                                   v-text="userMessagesData.stats.gift_count"></span>
                         </button>
-                        <div class="user-tab-button flex-1 cursor-default">
-                            点赞
-                            <span class="ml-2 px-2 py-0.5 bg-red-100 text-red-500 rounded-full text-xs"
-                                  v-text="formatNumber(userMessagesData.stats.like_count || 0)"></span>
-                        </div>
                     </div>
                 </div>
 

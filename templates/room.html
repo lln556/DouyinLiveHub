@@ -231,6 +231,11 @@
             border: 3px solid rgba(255, 255, 255, 0.3);
             background: rgba(255, 255, 255, 0.2);
         }
+        .user-avatar-fallback {
+            background: linear-gradient(135deg, #fbbf24, #ec4899);
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
         .user-stats-card {
             background: rgba(255, 255, 255, 0.15);
             border-radius: 12px;
@@ -251,6 +256,50 @@
             color: #667eea;
             border-bottom-color: #667eea;
             background: linear-gradient(to top, rgba(102, 126, 234, 0.08), transparent);
+        }
+        .user-stat-chips {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 16px;
+        }
+        @media (max-width: 480px) {
+            .user-stat-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .user-stat-chip {
+            background: rgba(0, 0, 0, 0.22);
+            border-radius: 8px;
+            padding: 8px 12px 10px;
+            text-align: center;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+        .user-stat-chip::after {
+            content: '';
+            position: absolute;
+            left: 10px;
+            right: 10px;
+            bottom: 0;
+            height: 2px;
+            background: var(--chip-accent, transparent);
+            border-radius: 1px;
+        }
+        .user-stat-chip[data-chip="messages"] { --chip-accent: #93c5fd; }
+        .user-stat-chip[data-chip="chat"] { --chip-accent: #67e8f9; }
+        .user-stat-chip[data-chip="gift"] { --chip-accent: #f9a8d4; }
+        .user-stat-chip[data-chip="like"] { --chip-accent: #fb7185; }
+        .user-stat-chip[data-chip="like"] .user-stat-chip-value { color: #fecdd3; }
+        .user-stat-chip-label {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.75);
+            margin-bottom: 2px;
+            letter-spacing: 0.5px;
+        }
+        .user-stat-chip-value {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.2;
         }
         .user-message-card {
             padding: 14px 18px;
@@ -739,11 +788,11 @@
                                     :src="contributor.avatar"
                                     class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0"
                                     alt="用户头像">
-                                <img
+                                <div
                                     v-else
-                                    src="https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/default-avatar.jpeg"
-                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0"
-                                    alt="默认头像">
+                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-yellow-200 flex-shrink-0 flex items-center justify-center text-white font-bold text-sm"
+                                    style="background: linear-gradient(135deg, #fbbf24, #ec4899);"
+                                    v-text="(contributor.user || 'U').substring(0, 1)"></div>
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-center gap-1">
                                         <span class="font-semibold text-gray-800 truncate cursor-pointer hover:text-blue-600 transition-colors"
@@ -785,11 +834,11 @@
                                     :src="liker.avatar"
                                     class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-red-200 flex-shrink-0"
                                     alt="用户头像">
-                                <img
+                                <div
                                     v-else
-                                    src="https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/default-avatar.jpeg"
-                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-red-200 flex-shrink-0"
-                                    alt="默认头像">
+                                    class="w-10 h-10 rounded-full mr-2 sm:mr-3 ring-2 ring-red-200 flex-shrink-0 flex items-center justify-center text-white font-bold text-sm"
+                                    style="background: linear-gradient(135deg, #fb7185, #f97316);"
+                                    v-text="(liker.user || 'U').substring(0, 1)"></div>
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-center gap-1">
                                         <span class="font-semibold text-gray-800 truncate cursor-pointer hover:text-blue-600 transition-colors"
@@ -828,7 +877,7 @@
                             v-if="userMessagesData.user.avatar"
                             :src="userMessagesData.user.avatar"
                             class="user-avatar-large mr-4">
-                        <div v-else class="user-avatar-large flex items-center justify-center text-2xl font-bold mr-4"
+                        <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-2xl font-bold mr-4"
                              v-text="(userMessagesData.user.nickname || userMessagesData.user.user_id || 'U').substring(0, 1)"></div>
                         <div>
                             <h2 class="text-xl font-bold flex items-center">
@@ -862,6 +911,26 @@
                         <span class="text-white text-opacity-70">粉丝</span>
                     </div>
                 </div>
+
+                <!-- 互动统计 chips（点赞作为只读 KPI，与其它指标并列展示，不再伪装成 tab） -->
+                <div class="user-stat-chips">
+                    <div class="user-stat-chip" data-chip="messages">
+                        <div class="user-stat-chip-label">消息</div>
+                        <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.total_messages || 0)"></div>
+                    </div>
+                    <div class="user-stat-chip" data-chip="chat">
+                        <div class="user-stat-chip-label">弹幕</div>
+                        <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.chat_count || 0)"></div>
+                    </div>
+                    <div class="user-stat-chip" data-chip="gift">
+                        <div class="user-stat-chip-label">礼物</div>
+                        <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.gift_count || 0)"></div>
+                    </div>
+                    <div class="user-stat-chip" data-chip="like" title="点赞为累计计数，无消息列表">
+                        <div class="user-stat-chip-label">点赞</div>
+                        <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.like_count || 0)"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- 标签页 -->
@@ -888,11 +957,6 @@
                         <span class="ml-2 px-2 py-0.5 bg-pink-100 text-pink-600 rounded-full text-xs"
                               v-text="userMessagesData.stats.gift_count"></span>
                     </button>
-                    <div class="user-tab-button flex-1 cursor-default">
-                        点赞
-                        <span class="ml-2 px-2 py-0.5 bg-red-100 text-red-500 rounded-full text-xs"
-                              v-text="formatNumber(userMessagesData.stats.like_count || 0)"></span>
-                    </div>
                 </div>
             </div>
 
