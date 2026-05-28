@@ -7,7 +7,7 @@ pytestmark = pytest.mark.e2e
 def test_home_renders_with_navigation(authed_page, base_url):
     """登录态首页能渲染、导航按钮在。"""
     authed_page.goto(base_url)
-    assert authed_page.locator("text=抖音直播监控平台").is_visible()
+    assert authed_page.locator("text=抖音直播记录站").is_visible()
     assert authed_page.locator("a[href='/stats']").is_visible()
     assert authed_page.locator("a[href='/history']").is_visible()
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音直播监控平台</title>
+    <title>抖音直播记录站</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico">
     <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14"></script>
@@ -798,8 +798,8 @@
         <header class="command-panel">
             <div>
                 <div class="eyebrow">Live Command</div>
-                <h1 class="page-title">抖音直播监控平台</h1>
-                <p class="page-subtitle">集中管理直播间监控、凭证与历史数据，快速处理启动、停止、归档和配置变更。</p>
+                <h1 class="page-title">抖音直播记录站</h1>
+                <p class="page-subtitle">集中管理直播间接入、凭证与历史数据，快速处理启动、停止、归档和配置变更。</p>
                 <!-- 代理状态指示 -->
                 <div class="status-strip">
                     <div :class="['status-pill', proxy.enabled ? 'is-ready' : '']">
@@ -841,7 +841,7 @@
         </header>
 
         <!-- 统计卡片 -->
-        <section class="stats-grid" aria-label="监控概览">
+        <section class="stats-grid" aria-label="数据概览">
             <div class="stat-card" style="--stat-color: var(--blue);">
                 <div class="stat-value" v-text="stats.total_rooms"></div>
                 <div class="stat-label">主页房间数</div>
@@ -849,7 +849,7 @@
             </div>
             <div class="stat-card" style="--stat-color: var(--jade);">
                 <div class="stat-value" v-text="stats.monitoring_rooms"></div>
-                <div class="stat-label">监控中</div>
+                <div class="stat-label">运行中</div>
                 <div class="stat-note">线程运行 · 直播中</div>
             </div>
             <div class="stat-card" style="--stat-color: var(--amber);">
@@ -872,7 +872,7 @@
         <!-- 房间列表 -->
         <section class="room-panel">
             <div class="room-panel-head">
-                <h2 class="room-panel-title">监控房间列表</h2>
+                <h2 class="room-panel-title">已接入直播间</h2>
                 <span class="room-count" v-text="rooms.length + ' 个房间'"></span>
             </div>
             <div class="desktop-room-table">
@@ -888,7 +888,7 @@
                         <tr>
                             <th>房间ID/抖音号</th>
                             <th>主播名称</th>
-                            <th>监控状态</th>
+                            <th>运行状态</th>
                             <th>直播状态</th>
                             <th>操作</th>
                         </tr>
@@ -896,7 +896,7 @@
                     <tbody>
                         <tr v-if="rooms.length === 0">
                             <td colspan="5" class="empty-state">
-                                暂无监控房间，点击上方按钮添加
+                                暂无已接入直播间，点击上方按钮添加
                             </td>
                         </tr>
                         <tr v-for="room in rooms" :key="room.id" class="table-row">
@@ -956,7 +956,7 @@
             </div>
             <div class="mobile-room-list">
                 <div v-if="rooms.length === 0" class="room-card empty-state">
-                    暂无监控房间，点击上方按钮添加
+                    暂无已接入直播间，点击上方按钮添加
                 </div>
                 <article v-for="room in rooms" :key="'mobile-' + room.id" class="room-card">
                     <div class="room-card-top">
@@ -1007,7 +1007,7 @@
         <div v-if="showAddModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-md">
                 <div class="px-6 py-4 border-b">
-                    <h3 class="text-lg font-bold">添加监控房间</h3>
+                    <h3 class="text-lg font-bold">添加直播间</h3>
                 </div>
                 <div class="px-6 py-4 space-y-4">
                     <div>
@@ -1026,12 +1026,12 @@
                         </ul>
                     </div>
                     <div class="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
-                        <div class="font-medium mb-1">监控模式说明：</div>
+                        <div class="font-medium mb-1">运行模式说明：</div>
                         <ul class="list-disc list-inside text-xs space-y-1">
-                            <li>开播时自动连接监控</li>
+                            <li>开播时自动接入</li>
                             <li>未开播时自动轮询等待</li>
                             <li>关播后继续等待下次开播</li>
-                            <li>需手动停止监控</li>
+                            <li>需手动停止</li>
                         </ul>
                     </div>
                 </div>
@@ -1092,7 +1092,7 @@
                                 class="w-full px-3 py-2 border rounded-lg transition-all duration-200 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200">
                         </div>
                         <div class="text-xs text-gray-500 bg-yellow-50 p-2 rounded">
-                            注意：修改代理配置后，需要重启监控房间才能生效
+                            注意：修改代理配置后，需要重启已接入直播间才能生效
                         </div>
                     </div>
                 </div>
@@ -1181,17 +1181,17 @@
                             <span class="text-sm font-medium" v-text="editRoom.anchor_name || '未知'"></span>
                         </div>
                         <div class="flex justify-between">
-                            <span class="text-sm text-gray-600">监控状态:</span>
+                            <span class="text-sm text-gray-600">运行状态:</span>
                             <span :class="['text-xs px-2 py-1 rounded-full', getMonitorStatusClass(editRoom)]" v-text="getMonitorStatusText(editRoom)"></span>
                         </div>
                     </div>
                     <div class="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
-                        <div class="font-medium mb-1">监控模式说明：</div>
+                        <div class="font-medium mb-1">运行模式说明：</div>
                         <ul class="list-disc list-inside text-xs space-y-1">
-                            <li>开播时自动连接监控</li>
+                            <li>开播时自动接入</li>
                             <li>未开播时自动轮询等待</li>
                             <li>关播后继续等待下次开播</li>
-                            <li>需手动停止监控</li>
+                            <li>需手动停止</li>
                         </ul>
                     </div>
                 </div>

@@ -141,7 +141,7 @@ const app = new Vue({
                 if (response.ok) {
                     this.proxy = data;
                     this.closeProxyModal();
-                    alert('代理配置已更新，重启监控后生效');
+                    alert('代理配置已更新，重启后生效');
                 } else {
                     alert(data.error || '更新失败');
                 }
@@ -261,7 +261,7 @@ const app = new Vue({
             }
         },
         async stopRoom(liveId) {
-            if (!confirm('确定要停止监控吗？')) return;
+            if (!confirm('确定要停止记录吗？')) return;
 
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/stop`, {
@@ -309,7 +309,7 @@ const app = new Vue({
             return this.getMonitorStatusText(status);
         },
         getMonitorStatusClass(room) {
-            // 基于 status 字段判断监控状态
+            // 基于 status 字段判断运行状态
             switch (room.status) {
                 case 'monitoring': return 'bg-green-100 text-green-800';
                 case 'offline': return 'bg-yellow-100 text-yellow-800';
@@ -319,9 +319,9 @@ const app = new Vue({
             }
         },
         getMonitorStatusText(room) {
-            // 基于 status 字段判断监控状态
+            // 基于 status 字段判断运行状态
             switch (room.status) {
-                case 'monitoring': return '监控中';
+                case 'monitoring': return '运行中';
                 case 'offline': return '等待开播';
                 case 'stopped': return '已停止';
                 case 'error': return '错误';
@@ -344,7 +344,7 @@ const app = new Vue({
             return room.status === 'error' ? 'is-danger' : 'is-warning';
         },
         getIsMonitoring(room) {
-            // 判断是否正在监控：监控线程运行中
+            // 判断是否正在记录：记录线程运行中
             return room.is_monitor_alive === true;
         },
         getLiveStatusClass(status) {
