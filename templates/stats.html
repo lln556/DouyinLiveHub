@@ -337,7 +337,7 @@
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="formatNumber(stats.total_like_count)"></span>
                         <span class="metric-unit text-xs font-semibold text-red-500">次</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4">峰值观看 <span class="text-gray-600" v-text="formatNumber(stats.peak_viewer_max)"></span></div>
+                    <div class="text-xs text-gray-400 mt-4">场均 <span class="text-gray-600" v-text="formatAvgLikes()"></span></div>
                 </article>
             </section>
 

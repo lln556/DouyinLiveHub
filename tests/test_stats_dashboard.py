@@ -106,6 +106,48 @@ class StatsDashboardDataTests(unittest.TestCase):
             'max_date': '2026-05-27',
         })
 
+    def test_averages_ignore_zero_income_and_zero_like_sessions(self):
+        session = self.svc.get_session()
+        try:
+            session.add(LiveRoom(live_id='room-1', anchor_name='主播A'))
+            session.add_all([
+                LiveSession(
+                    live_id='room-1',
+                    anchor_name='主播A',
+                    start_time=datetime(2026, 5, 25, 20, 0, tzinfo=CHINA_TZ),
+                    status='ended',
+                    total_income=100,
+                    total_like_count=0,
+                ),
+                LiveSession(
+                    live_id='room-1',
+                    anchor_name='主播A',
+                    start_time=datetime(2026, 5, 26, 20, 0, tzinfo=CHINA_TZ),
+                    status='ended',
+                    total_income=0,
+                    total_like_count=500,
+                ),
+                LiveSession(
+                    live_id='room-1',
+                    anchor_name='主播A',
+                    start_time=datetime(2026, 5, 27, 20, 0, tzinfo=CHINA_TZ),
+                    status='ended',
+                    total_income=300,
+                    total_like_count=1500,
+                ),
+            ])
+            session.commit()
+        finally:
+            session.close()
+
+        stats = self.svc.get_sessions_aggregated_stats(live_id='room-1')
+
+        self.assertEqual(stats['total_sessions'], 3)
+        self.assertEqual(stats['total_income'], 400)
+        self.assertEqual(stats['total_like_count'], 2000)
+        self.assertEqual(stats['avg_income'], 200)
+        self.assertEqual(stats['avg_like_count'], 1000)
+
 
 class StatsDashboardMarkupTests(unittest.TestCase):
     def test_stats_page_exposes_reworked_dashboard_sections(self):
@@ -135,6 +177,7 @@ class StatsDashboardMarkupTests(unittest.TestCase):
         self.assertIn('normalizeChartMetric()', script)
         self.assertIn('renderTrendChart()', script)
         self.assertIn('buildTrendChartOption()', script)
+        self.assertIn('formatAvgLikes()', script)
         self.assertIn('this._trendChart.getDom()', script)
         self.assertIn('this._trendChart.dispose();', script)
         self.assertIn('canAutoLoadSelectedRoomStats()', script)
@@ -143,6 +186,7 @@ class StatsDashboardMarkupTests(unittest.TestCase):
         self.assertIn('trendChartPoints()', script)
         self.assertIn('formatDurationParts(seconds)', script)
         self.assertIn('@change="autoLoadSelectedRoomStats"', html)
+        self.assertIn('v-text="formatAvgLikes()"', html)
 
 
 if __name__ == '__main__':
