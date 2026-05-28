@@ -1418,6 +1418,18 @@ class DataService:
             total_chat_count = sum(s.total_chat_count or 0 for s in sessions)
             total_like_count = sum(s.total_like_count or 0 for s in sessions)
             total_sessions = len(sessions)
+            income_sessions = [s for s in sessions if (s.total_income or 0) > 0]
+            like_sessions = [s for s in sessions if (s.total_like_count or 0) > 0]
+            avg_income = (
+                total_income / len(income_sessions)
+                if income_sessions
+                else 0
+            )
+            avg_like_count = (
+                total_like_count / len(like_sessions)
+                if like_sessions
+                else 0
+            )
             live_sessions = sum(1 for s in sessions if s.status == 'live')
             ended_sessions = sum(1 for s in sessions if s.status == 'ended')
             peak_viewer_max = max((s.peak_viewer_count or 0) for s in sessions) if sessions else 0
@@ -1470,6 +1482,8 @@ class DataService:
                 'total_gift_count': total_gift_count,
                 'total_chat_count': total_chat_count,
                 'total_like_count': total_like_count,
+                'avg_income': avg_income,
+                'avg_like_count': avg_like_count,
                 'peak_viewer_max': peak_viewer_max,
                 'total_duration_seconds': total_duration_seconds,
                 'avg_duration_seconds': avg_duration,

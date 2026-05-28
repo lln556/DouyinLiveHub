@@ -907,11 +907,12 @@ const app = new Vue({
             }
         },
         formatAvgIncome() {
-            if (!this.stats.total_sessions || this.stats.total_sessions === 0) {
-                return '0 钻石';
-            }
-            const avg = this.stats.total_income / this.stats.total_sessions;
+            const avg = Number(this.stats.avg_income || 0);
             return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 钻石';
+        },
+        formatAvgLikes() {
+            const avg = Number(this.stats.avg_like_count || 0);
+            return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 次';
         },
         formatDuration(seconds) {
             if (!seconds || seconds === 0) return '0分钟';
