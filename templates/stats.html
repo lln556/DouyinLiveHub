@@ -310,7 +310,9 @@
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="formatInteger(stats.total_income)"></span>
                         <span class="metric-unit text-xs font-semibold text-yellow-600">钻石</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4">场均 <span class="text-gray-600" v-text="formatAvgIncome()"></span></div>
+                    <div class="text-xs text-gray-400 mt-4" title="仅统计本周期内有收入的场次，未产生收入的场次不计入分母">
+                        场均 <span class="text-gray-600" v-text="formatAvgIncome()"></span>
+                    </div>
                 </article>
 
                 <article data-metric-card="total-sessions" class="metric-card p-5" style="--metric-accent: #2563eb;">
@@ -337,7 +339,9 @@
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="formatNumber(stats.total_like_count)"></span>
                         <span class="metric-unit text-xs font-semibold text-red-500">次</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4">场均 <span class="text-gray-600" v-text="formatAvgLikes()"></span></div>
+                    <div class="text-xs text-gray-400 mt-4" title="仅统计本周期内有点赞的场次，零点赞场次不计入分母">
+                        场均 <span class="text-gray-600" v-text="formatAvgLikes()"></span>
+                    </div>
                 </article>
             </section>
 
@@ -361,7 +365,7 @@
                             <span class="text-xs text-gray-500 metric-unit" v-text="formatDurationParts(stats.avg_duration_seconds).unit"></span>
                         </div>
                     </div>
-                    <div class="metric-chip px-3 py-2">
+                    <div class="metric-chip px-3 py-2" title="仅统计本周期内有收入的场次，未产生收入的场次不计入分母">
                         <div class="text-xs text-gray-500">场均收入</div>
                         <div class="mt-1 font-semibold text-gray-900" v-text="formatAvgIncome()"></div>
                     </div>
