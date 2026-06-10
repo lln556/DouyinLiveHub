@@ -148,6 +148,47 @@ class CookieHealthService:
                 message=f'抖音 Cookie 已恢复（触发: {trigger}）')
             logger.info("抖音 Cookie 已恢复")
 
+    def _passive_signal_hit(self) -> bool:
+        """
+        被动信号：存在"连接足够久 + 近期有弹幕 + 长时间无礼物"的房间。
+        任一房间近期收到礼物则直接否决（Cookie 显然有效）。
+        """
+        now = time.time()
+        hit = False
+        for monitored_room in list(self.room_manager.active_rooms.values()):
+            fetcher = getattr(monitored_room, 'fetcher', None)
+            if fetcher is None:
+                continue
+            last_gift = getattr(fetcher, 'last_gift_time', None)
+            if last_gift and now - last_gift <= config.COOKIE_HEALTH_GIFT_SILENCE:
+                return False
+            ws_open = getattr(fetcher, 'ws_open_time', None)
+            last_chat = getattr(fetcher, 'last_chat_time', None)
+            connected_long_enough = ws_open and now - ws_open > config.COOKIE_HEALTH_GIFT_SILENCE
+            chat_active = last_chat and now - last_chat <= config.COOKIE_HEALTH_CHAT_ACTIVE
+            if connected_long_enough and chat_active:
+                hit = True
+        return hit
+
+    def tick(self):
+        """定时入口（APScheduler 每 COOKIE_HEALTH_TICK_INTERVAL 秒调用一次）。"""
+        try:
+            if not config.DOUYIN_COOKIE:
+                if self.status != 'unconfigured':
+                    self._set_unconfigured()
+                return
+            now = time.time()
+            probe_due = (self._last_probe_at is None
+                         or now - self._last_probe_at >= config.COOKIE_HEALTH_CHECK_INTERVAL)
+            passive_allowed = (self._last_probe_at is None
+                               or now - self._last_probe_at >= PASSIVE_PROBE_MIN_INTERVAL)
+            if passive_allowed and self._passive_signal_hit():
+                self.run_probe(trigger='passive')
+            elif config.COOKIE_HEALTH_CHECK_INTERVAL > 0 and probe_due:
+                self.run_probe(trigger='scheduled')
+        except Exception as e:
+            logger.error(f"Cookie 健康检查 tick 出错: {e}")
+
 
 if __name__ == '__main__':
     # 手动验证入口：打印原始响应 + 判定结果，用于校准判定字段

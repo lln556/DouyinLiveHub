@@ -4,6 +4,7 @@ WebSocket处理器
 """
 import gzip
 import threading
+import time
 from typing import TYPE_CHECKING
 
 import websocket
@@ -101,6 +102,11 @@ class WebDouyinLiveFetcher:
         self.current_viewer_count = 0  # 当前观看人数（用于计算峰值）
         self.max_viewer_count = 0  # 峰值观看人数
         self.anchor_name = None  # 主播名称
+
+        # Cookie 被动测活信号（内存时间戳，不入库）
+        self.ws_open_time = None    # WebSocket 连接建立时间
+        self.last_chat_time = None  # 最近一条弹幕时间
+        self.last_gift_time = None  # 最近一条礼物时间
 
         self.log.info(f"初始化WebDouyinLiveFetcher: live_id={live_id}")
 
@@ -200,6 +206,7 @@ class WebDouyinLiveFetcher:
 
     def _handle_chat_message(self, chat_msg):
         """处理聊天消息"""
+        self.last_chat_time = time.time()
         user = chat_msg.user.nick_name
         content = chat_msg.content
         level = chat_msg.user.pay_grade.level if hasattr(chat_msg.user, 'pay_grade') else 0
@@ -289,6 +296,8 @@ class WebDouyinLiveFetcher:
         1. 使用 trace_id 去重：防止同一消息重复处理
         2. 使用 group_id 组合连击：不依赖 send_type，所有礼物都可能是连击的
         """
+        # 任何礼物消息到达都证明 Cookie 工作正常（在去重前记录）
+        self.last_gift_time = time.time()
         # 获取data_service
         data_service = self.monitored_room.manager.data_service
 
@@ -932,6 +941,7 @@ class WebDouyinLiveFetcher:
 
     def _wsOnOpen(self, ws):
         """WebSocket连接建立"""
+        self.ws_open_time = time.time()
         self._fetcher.record_websocket_open()
         threading.Thread(target=self._fetcher._sendHeartbeat, daemon=True).start()
         self.log.success("WebSocket连接已建立")
