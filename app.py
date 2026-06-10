@@ -17,6 +17,7 @@ from models.database import Base
 from services.data_service import DataService
 from services.room_manager import RoomManager, MonitoredRoom
 from services.scheduler_service import SchedulerService
+from services.cookie_health import CookieHealthService, COOKIE_HEALTH_TICK_INTERVAL
 from api.rooms import init_rooms_api
 from utils.logger import get_logger
 from utils.status_display import StatusDisplay
@@ -76,6 +77,9 @@ room_manager = RoomManager(data_service, socketio)
 
 # 初始化调度服务
 scheduler_service = SchedulerService(room_manager, data_service)
+
+# 初始化 Cookie 健康检测服务
+cookie_health_service = CookieHealthService(room_manager, data_service)
 
 # 初始化终端状态面板
 status_display = StatusDisplay(room_manager) if config.STATUS_DISPLAY_ENABLED else None
@@ -256,11 +260,12 @@ def update_proxy_config():
 
 @app.route('/api/douyin-cookie', methods=['GET'])
 def get_douyin_cookie_config():
-    """获取 Cookie 配置状态，不返回 Cookie 明文。"""
+    """获取 Cookie 配置状态与健康状态，不返回 Cookie 明文。"""
     cookie = config.DOUYIN_COOKIE or ''
     return jsonify({
         'configured': bool(cookie),
-        'length': len(cookie)
+        'length': len(cookie),
+        'health': cookie_health_service.snapshot()
     })
 
 
@@ -284,6 +289,8 @@ def update_douyin_cookie_config():
         persist_error = str(e)
         logger.warning(f"写入 .env 失败，Cookie 仅在当前运行时生效: {e}")
     updated_rooms = room_manager.update_douyin_cookie(cookie, reconnect_active=reconnect_active)
+    # 立即测活：粘贴完 Cookie 马上知道是否有效（清空时返回 unconfigured）
+    health = cookie_health_service.run_probe(trigger='cookie_updated', skip_debounce=True)
 
     logger.info(f"抖音 Cookie 已更新: configured={bool(cookie)}, updated_rooms={updated_rooms}, reconnect_active={reconnect_active}, persisted={persisted}")
 
@@ -294,8 +301,16 @@ def update_douyin_cookie_config():
         'updated_rooms': updated_rooms,
         'reconnect_active': reconnect_active,
         'persisted': persisted,
-        'persist_error': persist_error
+        'persist_error': persist_error,
+        'health': health
     })
+
+
+@app.route('/api/douyin-cookie/check', methods=['POST'])
+def check_douyin_cookie():
+    """手动触发一次 Cookie 测活，同步返回健康状态（跳过防抖）。"""
+    snapshot = cookie_health_service.run_probe(trigger='manual', skip_debounce=True)
+    return jsonify(snapshot)
 
 
 # ==================== Socket.IO事件 ====================
@@ -441,6 +456,15 @@ def handle_shutdown():
 
 if __name__ == '__main__':
     try:
+        # 注册 Cookie 健康检查任务（tick 内部自行判断定时/被动触发时机）
+        scheduler_service.add_job(
+            cookie_health_service.tick,
+            'interval',
+            seconds=COOKIE_HEALTH_TICK_INTERVAL,
+            id='cookie_health_tick',
+            name='Cookie健康检查'
+        )
+
         # 启动调度服务
         scheduler_service.start()
 
