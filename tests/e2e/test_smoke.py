@@ -18,3 +18,12 @@ def test_logout_redirects_to_login(authed_page, base_url):
     authed_page.locator("a[href='/logout']").click()
     authed_page.wait_for_url(f"{base_url}/login")
     assert authed_page.locator("input[name=username]").is_visible()
+
+
+def test_home_shows_cookie_health_pill(authed_page, base_url):
+    """首页 Cookie 状态徽章渲染健康状态文案（未配置/正常/确认中/已失活/未知之一）。"""
+    authed_page.goto(base_url)
+    pill = authed_page.locator(".status-pill", has_text="Cookie")
+    assert pill.is_visible()
+    text = pill.inner_text()
+    assert any(label in text for label in ("未配置", "正常", "确认中", "已失活", "未知"))

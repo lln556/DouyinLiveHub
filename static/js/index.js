@@ -9,6 +9,7 @@ const app = new Vue({
         showProxyModal: false,
         showCookieModal: false,
         cookieSaving: false,
+        cookieChecking: false,
         showEditModal: false,
         newRoom: {
             live_id: ''
@@ -34,7 +35,13 @@ const app = new Vue({
         },
         douyinCookie: {
             configured: false,
-            length: 0
+            length: 0,
+            health: {
+                status: 'unknown',
+                last_check_time: null,
+                last_ok_time: null,
+                last_error: null
+            }
         },
         cookieForm: {
             cookie: '',
@@ -51,7 +58,23 @@ const app = new Vue({
         setInterval(() => {
             this.loadRooms();
             this.loadStats();
+            this.loadCookieConfig();
         }, 5000);
+    },
+    computed: {
+        cookieHealth() {
+            return (this.douyinCookie && this.douyinCookie.health) || { status: 'unknown' };
+        },
+        cookieHealthText() {
+            if (!this.douyinCookie.configured) return '未配置';
+            const map = { healthy: '正常', suspect: '确认中', dead: '已失活', unknown: '未知' };
+            return map[this.cookieHealth.status] || '未知';
+        },
+        cookiePillClass() {
+            if (!this.douyinCookie.configured) return '';
+            const map = { healthy: 'is-ready', suspect: 'is-warn', dead: 'is-danger' };
+            return map[this.cookieHealth.status] || '';
+        }
     },
     methods: {
         async loadRooms() {
@@ -87,9 +110,28 @@ const app = new Vue({
             try {
                 const response = await fetch('/api/douyin-cookie');
                 const data = await response.json();
+                if (!data.health) {
+                    data.health = { status: 'unknown', last_check_time: null, last_ok_time: null, last_error: null };
+                }
                 this.douyinCookie = data;
             } catch (error) {
                 console.error('加载Cookie配置失败:', error);
+            }
+        },
+        async checkCookieHealth() {
+            this.cookieChecking = true;
+            try {
+                const response = await fetch('/api/douyin-cookie/check', { method: 'POST' });
+                const data = await response.json();
+                if (response.ok) {
+                    this.douyinCookie = Object.assign({}, this.douyinCookie, { health: data });
+                } else {
+                    alert(data.error || '检测失败');
+                }
+            } catch (error) {
+                alert('检测失败: ' + error.message);
+            } finally {
+                this.cookieChecking = false;
             }
         },
         openAddModal() {
@@ -171,12 +213,15 @@ const app = new Vue({
                 if (response.ok) {
                     this.douyinCookie = {
                         configured: data.configured,
-                        length: data.length
+                        length: data.length,
+                        health: data.health || this.douyinCookie.health
                     };
                     this.cookieForm.cookie = '';
                     this.closeCookieModal();
                     const persistText = data.persisted ? '' : '；但写入 .env 失败，重启后不会保留';
-                    alert(`Cookie已更新，已同步 ${data.updated_rooms} 个运行中房间${persistText}`);
+                    const healthText = data.health && data.health.status === 'healthy'
+                        ? '，测活通过 ✓' : (data.health && data.health.status === 'dead' ? '，但测活未通过 ✗' : '');
+                    alert(`Cookie已更新，已同步 ${data.updated_rooms} 个运行中房间${healthText}${persistText}`);
                 } else {
                     alert(data.error || '更新失败');
                 }
@@ -204,7 +249,8 @@ const app = new Vue({
                 if (response.ok) {
                     this.douyinCookie = {
                         configured: data.configured,
-                        length: data.length
+                        length: data.length,
+                        health: data.health || this.douyinCookie.health
                     };
                     this.cookieForm.cookie = '';
                     this.closeCookieModal();

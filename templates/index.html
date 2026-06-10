@@ -194,6 +194,16 @@
             box-shadow: 0 0 0 5px rgba(18, 127, 109, 0.13);
         }
 
+        .status-pill.is-warn .status-dot {
+            background: #d97706;
+            box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.13);
+        }
+
+        .status-pill.is-danger .status-dot {
+            background: #dc2626;
+            box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.13);
+        }
+
         .action-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -794,6 +804,12 @@
 </head>
 <body>
     <div id="app" v-cloak class="app-shell">
+        <!-- Cookie 失活提醒横幅 -->
+        <div v-if="cookieHealth.status === 'dead'" v-cloak
+             class="bg-red-600 text-white text-sm font-medium px-4 py-3 rounded-lg mb-4 flex items-center justify-between">
+            <span>⚠️ 抖音 Cookie 已失活，礼物数据可能缺失，请更新 Cookie</span>
+            <button @click="openCookieModal" class="underline font-bold ml-4 shrink-0">立即更新</button>
+        </div>
         <!-- 头部 -->
         <header class="command-panel">
             <div>
@@ -806,9 +822,9 @@
                         <span class="status-dot"></span>
                         <span>代理 <strong v-text="proxy.enabled ? proxy.host + ':' + proxy.port : '未启用'"></strong></span>
                     </div>
-                    <div :class="['status-pill', douyinCookie.configured ? 'is-ready' : '']">
+                    <div :class="['status-pill', cookiePillClass]">
                         <span class="status-dot"></span>
-                        <span>Cookie <strong v-text="douyinCookie.configured ? '已配置' : '未配置'"></strong></span>
+                        <span>Cookie <strong v-text="cookieHealthText"></strong></span>
                     </div>
                 </div>
             </div>
@@ -1118,9 +1134,22 @@
                     <h3 class="text-lg font-bold">抖音 Cookie 设置</h3>
                 </div>
                 <div class="px-6 py-4 space-y-4">
-                    <div class="text-sm bg-yellow-50 text-yellow-800 p-3 rounded-lg">
-                        当前状态：<span class="font-semibold" v-text="douyinCookie.configured ? '已配置' : '未配置'"></span>
-                        <span v-if="douyinCookie.length" v-text="'（长度 ' + douyinCookie.length + '）'"></span>
+                    <div class="text-sm bg-yellow-50 text-yellow-800 p-3 rounded-lg space-y-1">
+                        <div>
+                            当前状态：<span class="font-semibold" v-text="douyinCookie.configured ? '已配置' : '未配置'"></span>
+                            <span v-if="douyinCookie.length" v-text="'（长度 ' + douyinCookie.length + '）'"></span>
+                        </div>
+                        <div class="flex items-center flex-wrap gap-1">
+                            <span>健康状态：</span>
+                            <span class="font-semibold" v-text="cookieHealthText"></span>
+                            <span v-if="cookieHealth.last_check_time" class="text-yellow-600"
+                                  v-text="'（最后检测 ' + cookieHealth.last_check_time + '）'"></span>
+                            <span v-if="cookieHealth.last_error" class="text-red-600" v-text="cookieHealth.last_error"></span>
+                            <button @click="checkCookieHealth" :disabled="cookieChecking || !douyinCookie.configured"
+                                    class="ml-2 px-2 py-1 text-xs border border-yellow-400 rounded transition-all duration-200 hover:bg-yellow-100 disabled:opacity-50">
+                                <span v-text="cookieChecking ? '检测中...' : '测活'"></span>
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">完整 Cookie</label>
