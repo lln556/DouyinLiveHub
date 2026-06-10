@@ -170,3 +170,12 @@ COOKIE_HEALTH_CHAT_ACTIVE=600       # 被动信号: 多久内有弹幕算活跃(
 - **单测**：状态机转换（防抖 2 次才 dead、网络错误不改状态、恢复事件只写一次）、被动信号判定逻辑——探测函数 mock 掉
 - **集成测试**：沿用现有 pytest harness，覆盖 `GET/POST /api/douyin-cookie*` 三个接口
 - **实施第一步**：用真实 Cookie 手动验证探测接口判定字段（活/坏 Cookie 各一次），确定判定规则后再写代码
+
+## 实现备注（2026-06-10 实施时调整）
+
+1. **Socket.IO 广播改为前端轮询**：首页本无 Socket.IO 连接（纯 fetch + 5 秒轮询），
+   为 Cookie 状态引入 Socket.IO 得不偿失；`loadCookieConfig()` 加入现有 5 秒轮询即可实时感知。
+2. **调度落地为单个 5 分钟 tick**：每次 tick 评估被动信号（命中且距上次探测 ≥15 分钟则探测）；
+   距上次探测 ≥ `COOKIE_HEALTH_CHECK_INTERVAL` 则执行定时探测。语义与原设计等价，单任务更易测试。
+3. **探测接口实测结论**：`webcast/user/me` 活 Cookie 返回 `status_code=0` + `data.id_str`；
+   坏 Cookie 返回 `status_code=20003`（"User doesn't login"），与设计假定的判定规则一致，未做校准。
