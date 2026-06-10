@@ -16,6 +16,8 @@ dependencies = [
     # 数据库
     "SQLAlchemy>=2.0.23",
     "pymysql>=1.1.0",
+    # pymysql 连接 caching_sha2_password 认证的 MySQL 用户时必需
+    "cryptography>=42.0.0",
     # 定时任务
     "APScheduler>=3.10.4",
     # HTTP 请求
