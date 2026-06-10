@@ -111,3 +111,98 @@ def test_empty_cookie_sets_unconfigured(service, monkeypatch):
     monkeypatch.setattr(config, 'DOUYIN_COOKIE', '')
     snapshot = service.run_probe(trigger='cookie_updated')
     assert snapshot['status'] == 'unconfigured'
+
+
+# ───────── 被动信号 & tick ─────────
+
+import time
+from types import SimpleNamespace
+
+
+def _room_with_fetcher(**kw):
+    """构造带 fetcher 时间戳属性的假 MonitoredRoom。"""
+    return SimpleNamespace(fetcher=SimpleNamespace(
+        ws_open_time=kw.get('ws_open_time'),
+        last_chat_time=kw.get('last_chat_time'),
+        last_gift_time=kw.get('last_gift_time'),
+    ))
+
+
+def test_passive_signal_hits_when_chat_active_but_no_gift(service):
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 30, last_gift_time=None)
+    assert service._passive_signal_hit() is True
+
+
+def test_passive_signal_vetoed_by_recent_gift(service):
+    """任一房间近期收到礼物 → Cookie 显然有效，信号否决。"""
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 30, last_gift_time=None)
+    service.room_manager.active_rooms['r2'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 30, last_gift_time=now - 60)
+    assert service._passive_signal_hit() is False
+
+
+def test_passive_signal_ignores_freshly_connected_room(service):
+    """连接未满 GIFT_SILENCE 的房间不能作为证据（刚连上没礼物很正常）。"""
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 60, last_chat_time=now - 30, last_gift_time=None)
+    assert service._passive_signal_hit() is False
+
+
+def test_passive_signal_ignores_inactive_room(service):
+    """没有近期弹幕的房间（没人看/没开播）不能作为证据。"""
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 3600, last_gift_time=None)
+    assert service._passive_signal_hit() is False
+
+
+def test_tick_passive_hit_triggers_probe(service, monkeypatch):
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 30, last_gift_time=None)
+    calls = []
+    monkeypatch.setattr(service, 'run_probe', lambda trigger, **kw: calls.append(trigger))
+    service.tick()
+    assert calls == ['passive']
+
+
+def test_tick_passive_rate_limited(service, monkeypatch):
+    """距上次探测不足 15 分钟时被动信号不再触发，但定时探测条件也未到 → 无探测。"""
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 30, last_gift_time=None)
+    service._last_probe_at = now - 60  # 1 分钟前刚探测过
+    calls = []
+    monkeypatch.setattr(service, 'run_probe', lambda trigger, **kw: calls.append(trigger))
+    service.tick()
+    assert calls == []
+
+
+def test_tick_scheduled_probe_when_interval_elapsed(service, monkeypatch):
+    service._last_probe_at = time.time() - config.COOKIE_HEALTH_CHECK_INTERVAL - 1
+    calls = []
+    monkeypatch.setattr(service, 'run_probe', lambda trigger, **kw: calls.append(trigger))
+    service.tick()
+    assert calls == ['scheduled']
+
+
+def test_tick_first_run_probes_immediately(service, monkeypatch):
+    """启动后首次 tick（_last_probe_at 为 None）立即做定时探测。"""
+    calls = []
+    monkeypatch.setattr(service, 'run_probe', lambda trigger, **kw: calls.append(trigger))
+    service.tick()
+    assert calls == ['scheduled']
+
+
+def test_tick_unconfigured_sets_status_and_skips_probe(service, monkeypatch):
+    monkeypatch.setattr(config, 'DOUYIN_COOKIE', '')
+    calls = []
+    monkeypatch.setattr(service, 'run_probe', lambda trigger, **kw: calls.append(trigger))
+    service.tick()
+    assert calls == []
+    assert service.status == 'unconfigured'
