@@ -6,6 +6,7 @@ Cookie 健康检测服务
 import threading
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 import requests
 
@@ -31,7 +32,7 @@ class CookieProbeResult:
     detail: str
 
 
-def probe_douyin_cookie(cookie: str, proxies: dict = None) -> CookieProbeResult:
+def probe_douyin_cookie(cookie: str, proxies: Optional[dict] = None) -> CookieProbeResult:
     """
     用给定 Cookie 请求抖音登录态自检接口，判定登录态是否有效。
     网络错误、5xx、响应不可解析 → inconclusive（不可作为失活证据）。
@@ -60,6 +61,92 @@ def probe_douyin_cookie(cookie: str, proxies: dict = None) -> CookieProbeResult:
     if status_code == 0 and user_id not in ('', '0'):
         return CookieProbeResult('alive', f'登录用户 id={user_id}')
     return CookieProbeResult('dead', f'未检测到登录态 (status_code={status_code})')
+
+
+class CookieHealthService:
+    """
+    Cookie 健康状态机（内存态，重启后回到初始状态由首次探测刷新）。
+    状态: unconfigured / unknown / healthy / suspect / dead
+    """
+
+    def __init__(self, room_manager, data_service):
+        self.room_manager = room_manager
+        self.data_service = data_service
+        self._lock = threading.Lock()
+        self.status = 'unknown' if config.DOUYIN_COOKIE else 'unconfigured'
+        self.last_check_time = None
+        self.last_ok_time = None
+        self.last_error = None
+        self.last_trigger = None
+        self.fail_count = 0
+        self._last_probe_at = None  # time.time()，tick 调度与被动信号限流用
+
+    def snapshot(self) -> dict:
+        """当前健康状态快照（API 返回值）。"""
+        return {
+            'status': self.status,
+            'last_check_time': self.last_check_time,
+            'last_ok_time': self.last_ok_time,
+            'last_error': self.last_error,
+            'trigger': self.last_trigger,
+        }
+
+    def run_probe(self, trigger: str, skip_debounce: bool = False) -> dict:
+        """
+        执行一次主动探测并推进状态机。
+        :param trigger: scheduled / passive / manual / cookie_updated
+        :param skip_debounce: True 时单次明确未登录即判 dead（人工确认场景）
+        """
+        with self._lock:
+            cookie = config.DOUYIN_COOKIE
+            if not cookie:
+                self._set_unconfigured()
+                return self.snapshot()
+
+            self._last_probe_at = time.time()
+            result = probe_douyin_cookie(cookie, config.get_proxy_config())
+            now_str = get_china_now().strftime('%Y-%m-%d %H:%M:%S')
+            self.last_check_time = now_str
+            self.last_trigger = trigger
+            logger.info(f"Cookie 探测完成: trigger={trigger}, outcome={result.outcome}, detail={result.detail}")
+
+            if result.outcome == 'alive':
+                self.fail_count = 0
+                self.last_error = None
+                self.last_ok_time = now_str
+                self._transition('healthy', trigger, result.detail)
+            elif result.outcome == 'dead':
+                self.fail_count += 1
+                self.last_error = result.detail
+                if skip_debounce or self.fail_count >= 2:
+                    self._transition('dead', trigger, result.detail)
+                else:
+                    self._transition('suspect', trigger, result.detail)
+            else:  # inconclusive: 不可作为失活证据，只记录错误
+                self.last_error = result.detail
+            return self.snapshot()
+
+    def _set_unconfigured(self):
+        self.status = 'unconfigured'
+        self.fail_count = 0
+        self.last_error = None
+
+    def _transition(self, new_status: str, trigger: str, detail: str):
+        """状态切换；跨越 dead 边界时写全局系统事件。"""
+        old = self.status
+        if old == new_status:
+            return
+        self.status = new_status
+        if new_status == 'dead':
+            self.data_service.log_system_event(
+                None, 'cookie_dead',
+                message=f'抖音 Cookie 已失活（触发: {trigger}）: {detail}')
+            logger.warning(f"抖音 Cookie 已失活: {detail}")
+        elif old == 'dead' and new_status == 'healthy':
+            self.data_service.log_system_event(
+                None, 'cookie_recovered',
+                message=f'抖音 Cookie 已恢复（触发: {trigger}）')
+            logger.info("抖音 Cookie 已恢复")
 
 
 if __name__ == '__main__':
