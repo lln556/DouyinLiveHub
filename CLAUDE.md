@@ -360,6 +360,11 @@ PROXY_TYPE = os.getenv('PROXY_TYPE', 'http')  # http or socks5
 - `GET /api/proxy` - 获取代理配置
 - `POST /api/proxy` - 更新代理配置（仅运行时）
 
+### Cookie 配置与测活
+- `GET /api/douyin-cookie` - 获取 Cookie 配置状态与健康状态（含 health 字段）
+- `POST /api/douyin-cookie` - 更新 Cookie（更新后自动测活，响应含 health）
+- `POST /api/douyin-cookie/check` - 手动触发 Cookie 测活
+
 ---
 
 ## Socket.IO 事件
@@ -382,6 +387,7 @@ PROXY_TYPE = os.getenv('PROXY_TYPE', 'http')  # http or socks5
 | 保存统计快照 | 60s | 持久化当前统计到数据库 |
 | 清理旧数据 | 1h | 删除超过 `DATA_RETENTION_DAYS` 的记录 |
 | 自动启动24h房间 | 启动时一次 | 启动所有 monitor_type='24h' 的房间 |
+| Cookie 健康检查 | 5min (tick) | 评估被动信号；按 `COOKIE_HEALTH_CHECK_INTERVAL` 定时探测登录态 |
 
 ---
 
@@ -409,6 +415,11 @@ MONITOR_RECONNECT_INTERVAL=30
 MONITOR_MAX_RETRIES=5
 MONITOR_RECONNECT_DELAY=30
 MONITOR_STATUS_POLL_INTERVAL=60
+
+# Cookie 健康检测
+COOKIE_HEALTH_CHECK_INTERVAL=1800   # 定时探测间隔(秒)，0=关闭定时探测
+COOKIE_HEALTH_GIFT_SILENCE=1800     # 被动信号: 无礼物多久算可疑(秒)
+COOKIE_HEALTH_CHAT_ACTIVE=600       # 被动信号: 多久内有弹幕算活跃(秒)
 
 # 数据保留
 DATA_RETENTION_DAYS=90  # 0 = 永久保留
@@ -467,6 +478,12 @@ LOG_LEVEL=INFO
 1. 检查 `crawler/js/sign.js` 是否需要更新
 2. 验证 `protobuf/douyin.py` 协议定义是否过时
 3. 查看日志中的具体错误类型
+
+### 收不到礼物消息
+- 大概率是抖音 Cookie 失活（弹幕正常但礼物静默缺失）
+- 首页顶部 Cookie 徽章查看健康状态；"Cookie设置"中点"测活"立即确认
+- 失活/恢复时间记录在 `system_events` 表（event_type: cookie_dead / cookie_recovered）
+- 手动验证: `./scripts/check_cookie.sh`
 
 ### 状态不一致 (应用重启后)
 - 应用启动时会自动执行 `_cleanup_stale_statuses()` 清理不一致状态
