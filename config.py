@@ -44,6 +44,8 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 AUTH_USERNAME = os.getenv('AUTH_USERNAME', '').strip()
 AUTH_PASSWORD = os.getenv('AUTH_PASSWORD', '')
 AUTH_REQUIRED = bool(AUTH_USERNAME and AUTH_PASSWORD)
+# 登录态有效天数：cookie 持久化，关闭浏览器后仍可免密登录
+AUTH_SESSION_DAYS = int(os.getenv('AUTH_SESSION_DAYS', '30'))
 
 # SQLAlchemy配置
 # 独立于 Flask DEBUG，避免开启 Web 调试时把所有 SQL 查询刷到终端状态面板。

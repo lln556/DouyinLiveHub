@@ -5,7 +5,7 @@
 import os
 import secrets
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
@@ -29,6 +29,7 @@ initialization_lock = threading.Lock()
 # 创建Flask应用
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=config.AUTH_SESSION_DAYS)
 
 # 创建Socket.IO实例
 socketio = SocketIO(
@@ -154,6 +155,7 @@ def login():
         password_ok = secrets.compare_digest(password, config.AUTH_PASSWORD)
         if username_ok and password_ok:
             session.clear()
+            session.permanent = True
             session['authenticated'] = True
             session['username'] = username
             return redirect(get_safe_next())
