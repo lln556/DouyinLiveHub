@@ -99,6 +99,11 @@ SCHEDULER_RESTART_FAILED_INTERVAL = int(os.getenv('SCHEDULER_RESTART_FAILED_INTE
 SCHEDULER_STATS_SNAPSHOT_INTERVAL = int(os.getenv('SCHEDULER_STATS_SNAPSHOT_INTERVAL', '60'))  # 保存统计快照间隔(秒)
 SCHEDULER_CLEANUPOldData_INTERVAL = int(os.getenv('SCHEDULER_CLEANUPOldData_INTERVAL', '3600'))  # 清理旧数据间隔(秒)
 
+# Cookie 健康检测配置
+COOKIE_HEALTH_CHECK_INTERVAL = int(os.getenv('COOKIE_HEALTH_CHECK_INTERVAL', '1800'))  # 定时探测间隔(秒)，0=关闭定时探测
+COOKIE_HEALTH_GIFT_SILENCE = int(os.getenv('COOKIE_HEALTH_GIFT_SILENCE', '1800'))  # 被动信号: 无礼物多久算可疑(秒)
+COOKIE_HEALTH_CHAT_ACTIVE = int(os.getenv('COOKIE_HEALTH_CHAT_ACTIVE', '600'))  # 被动信号: 多久内有弹幕算活跃(秒)
+
 # WebSocket配置
 WS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0"
 WS_HOST = "https://www.douyin.com/"
