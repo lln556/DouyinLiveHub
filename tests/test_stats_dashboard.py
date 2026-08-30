@@ -180,6 +180,7 @@ class StatsDashboardMarkupTests(unittest.TestCase):
         self.assertIn('formatAvgLikes()', script)
         self.assertIn('this._trendChart.getDom()', script)
         self.assertIn('this._trendChart.dispose();', script)
+        self.assertIn('mergedRelatedRooms()', script)
         self.assertIn('canAutoLoadSelectedRoomStats()', script)
         self.assertIn('autoLoadSelectedRoomStats()', script)
         self.assertIn('this.autoLoadSelectedRoomStats();', script)

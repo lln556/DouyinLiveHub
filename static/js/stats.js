@@ -147,12 +147,37 @@ const app = new Vue({
         }
     },
     methods: {
+        annotateRelatedRooms(rooms) {
+            const counts = {};
+            rooms.forEach(room => {
+                if (room.anchor_id) {
+                    counts[room.anchor_id] = (counts[room.anchor_id] || 0) + 1;
+                }
+            });
+            return rooms.map(room => Object.assign({}, room, {
+                has_related: !!(room.anchor_id && counts[room.anchor_id] > 1)
+            }));
+        },
+        mergedRelatedRooms() {
+            const ids = (this.stats && this.stats.related_live_ids) || [];
+            if (!this.selectedRoomId || ids.length < 2) {
+                return [];
+            }
+            return ids.map(id => {
+                const room = this.rooms.find(item => item.live_id === id) || {};
+                return {
+                    live_id: id,
+                    anchor_name: room.anchor_name,
+                    is_archived: !!room.is_archived
+                };
+            });
+        },
         async loadRooms() {
             try {
                 const response = await fetch('/api/rooms?include_archived=1');
                 const data = await response.json();
                 if (data.rooms) {
-                    this.rooms = data.rooms;
+                    this.rooms = this.annotateRelatedRooms(data.rooms);
                 }
             } catch (error) {
                 console.error('加载房间列表失败:', error);

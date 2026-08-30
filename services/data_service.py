@@ -53,6 +53,35 @@ class DataService:
         """释放数据库连接池资源。"""
         self.engine.dispose()
 
+    def get_related_live_ids(self, live_id: str) -> List[str]:
+        """返回与该房间同属一个主播（相同 anchor_id）的所有 live_id，含自身。"""
+        if not live_id:
+            return []
+        session = self.get_session()
+        try:
+            return self._related_live_ids(session, live_id)
+        finally:
+            session.close()
+
+    def _related_live_ids(self, session, live_id: str) -> List[str]:
+        """在已有 session 中解析同一主播的所有 live_id。无 anchor_id 时只返回自身。"""
+        if not live_id:
+            return []
+        room = session.query(LiveRoom.live_id, LiveRoom.anchor_id).filter(
+            LiveRoom.live_id == live_id
+        ).first()
+        if not room or not room.anchor_id:
+            return [live_id]
+        rows = session.query(LiveRoom.live_id).filter(
+            LiveRoom.anchor_id == room.anchor_id
+        ).all()
+        ids = [row.live_id for row in rows]
+        if live_id not in ids:
+            ids.insert(0, live_id)
+        else:
+            ids = [live_id] + [item for item in ids if item != live_id]
+        return ids
+
     @staticmethod
     def _latest_profile_fields(user_contrib: UserContribution = None,
                                fallback_nickname: str = '',
@@ -618,9 +647,10 @@ class DataService:
         try:
             # 构建查询条件
             conditions = []
+            related_ids = self._related_live_ids(session, live_id) if live_id else []
 
-            if live_id:
-                conditions.append(GiftMessage.live_id == live_id)
+            if related_ids:
+                conditions.append(GiftMessage.live_id.in_(related_ids))
 
             if start_date:
                 start_datetime = datetime.strptime(start_date, '%Y-%m-%d').replace(
@@ -636,12 +666,16 @@ class DataService:
                 )
                 conditions.append(GiftMessage.created_at <= end_datetime)
 
-            # 先获取总数（不分组）
-            count_query = session.query(
-                func.count(func.distinct(
-                    func.concat(GiftMessage.live_id, '_', GiftMessage.user_id)
-                ))
-            )
+            # 指定房间时按主播合并：同一 user_id 跨关联 live_id 只计一条。
+            # 全部房间仍按 (live_id, user_id)，避免把不同主播下的同一观众合成一行。
+            if live_id:
+                count_query = session.query(func.count(func.distinct(GiftMessage.user_id)))
+            else:
+                count_query = session.query(
+                    func.count(func.distinct(
+                        func.concat(GiftMessage.live_id, '_', GiftMessage.user_id)
+                    ))
+                )
             if conditions:
                 count_query = count_query.filter(and_(*conditions))
             total = count_query.scalar() or 0
@@ -652,9 +686,8 @@ class DataService:
 
             # 聚合查询：按用户ID统计礼物贡献，昵称只作为展示信息。
             # 用户改名后历史礼物流水保留旧昵称，不能把昵称放进分组键，否则同一人会被拆成多条榜单记录。
-            # 使用子查询获取聚合数据
             subquery = session.query(
-                GiftMessage.live_id,
+                func.max(GiftMessage.live_id).label('live_id'),
                 func.max(GiftMessage.anchor_name).label('anchor_name'),
                 GiftMessage.user_id,
                 func.sum(GiftMessage.total_value).label('contribution_value'),
@@ -665,10 +698,14 @@ class DataService:
             if conditions:
                 subquery = subquery.filter(and_(*conditions))
 
-            subquery = subquery.group_by(
-                GiftMessage.live_id,
-                GiftMessage.user_id,
-            ).order_by(func.sum(GiftMessage.total_value).desc())
+            if live_id:
+                subquery = subquery.group_by(GiftMessage.user_id)
+            else:
+                subquery = subquery.group_by(
+                    GiftMessage.live_id,
+                    GiftMessage.user_id,
+                )
+            subquery = subquery.order_by(func.sum(GiftMessage.total_value).desc())
 
             # 添加分页到子查询
             subquery = subquery.limit(page_size).offset(offset)
@@ -679,20 +716,34 @@ class DataService:
             # 转换为字典列表，并从 user_contributions 表获取头像
             contributors = []
             for row in results:
-                # 从 user_contributions 表获取用户头像
-                user_contrib = session.query(UserContribution).filter(
-                    and_(
-                        UserContribution.live_id == row.live_id,
-                        UserContribution.user_id == row.user_id
-                    )
-                ).first()
+                if live_id:
+                    contribs = session.query(UserContribution).filter(
+                        and_(
+                            UserContribution.live_id.in_(related_ids),
+                            UserContribution.user_id == row.user_id
+                        )
+                    ).order_by(UserContribution.updated_at.desc()).all()
+                    user_contrib = contribs[0] if contribs else None
+                    like_count = sum(int(item.like_count or 0) for item in contribs)
+                    identity_live_filter = ChatMessage.live_id.in_(related_ids)
+                    gift_identity_live_filter = GiftMessage.live_id.in_(related_ids)
+                else:
+                    user_contrib = session.query(UserContribution).filter(
+                        and_(
+                            UserContribution.live_id == row.live_id,
+                            UserContribution.user_id == row.user_id
+                        )
+                    ).first()
+                    like_count = int(user_contrib.like_count or 0) if user_contrib else 0
+                    identity_live_filter = ChatMessage.live_id == row.live_id
+                    gift_identity_live_filter = GiftMessage.live_id == row.live_id
 
                 message_identity_conditions = [
-                    ChatMessage.live_id == row.live_id,
+                    identity_live_filter,
                     ChatMessage.user_id == row.user_id
                 ]
                 gift_identity_conditions = [
-                    GiftMessage.live_id == row.live_id,
+                    gift_identity_live_filter,
                     GiftMessage.user_id == row.user_id
                 ]
                 if start_date:
@@ -734,7 +785,7 @@ class DataService:
                 # 计算弹幕数
                 chat_conditions = [ChatMessage.user_id == row.user_id]
                 if live_id:
-                    chat_conditions.append(ChatMessage.live_id == live_id)
+                    chat_conditions.append(ChatMessage.live_id.in_(related_ids))
                 else:
                     chat_conditions.append(ChatMessage.live_id == row.live_id)
                 if start_date:
@@ -754,14 +805,14 @@ class DataService:
                 )
 
                 contributors.append({
-                    'live_id': row.live_id,
+                    'live_id': live_id or row.live_id,
                     'anchor_name': anchor_name,
                     'user_id': row.user_id,
                     'nickname': profile['nickname'],
                     'contribution_value': int(row.contribution_value),
                     'gift_count': int(row.gift_count),
                     'chat_count': chat_count,
-                    'like_count': int(user_contrib.like_count or 0) if user_contrib else 0,
+                    'like_count': like_count,
                     'user_avatar': profile['user_avatar'],
                     'user_level': profile['user_level'],
                     'fans_club_level': profile['fans_club_level']
@@ -781,94 +832,188 @@ class DataService:
         """
         获取总贡献榜（从累计汇总表读取）。
         旧礼物明细可能被数据保留策略清理，但 user_contributions 保留了累计总贡献。
+        指定 live_id 时会把同一 anchor_id 下的关联房间合并到 user_id。
         """
         session = self.get_session()
         try:
+            related_ids = self._related_live_ids(session, live_id) if live_id else None
+            merge_by_user = bool(live_id)
             conditions = [UserContribution.total_score > 0]
-            if live_id:
-                conditions.append(UserContribution.live_id == live_id)
+            if related_ids:
+                conditions.append(UserContribution.live_id.in_(related_ids))
 
-            total = session.query(func.count(UserContribution.id)).filter(
-                and_(*conditions)
-            ).scalar() or 0
+            if merge_by_user:
+                total = session.query(func.count(func.distinct(UserContribution.user_id))).filter(
+                    and_(*conditions)
+                ).scalar() or 0
+            else:
+                total = session.query(func.count(UserContribution.id)).filter(
+                    and_(*conditions)
+                ).scalar() or 0
 
             total_pages = (total + page_size - 1) // page_size if total > 0 else 1
             offset = (page - 1) * page_size
 
-            rows = session.query(UserContribution).filter(
-                and_(*conditions)
-            ).order_by(
-                UserContribution.total_score.desc(),
-                UserContribution.updated_at.desc()
-            ).limit(page_size).offset(offset).all()
-
-            message_extra = {}
-            if rows:
-                user_ids = [row.user_id for row in rows]
-                live_ids = [row.live_id for row in rows]
-
-                chat_query = session.query(
-                    ChatMessage.live_id,
-                    ChatMessage.user_id,
-                    func.count(ChatMessage.id).label('chat_count'),
-                    func.max(ChatMessage.user_level).label('user_level')
+            if merge_by_user:
+                agg_rows = session.query(
+                    UserContribution.user_id,
+                    func.sum(UserContribution.total_score).label('total_score'),
+                    func.sum(UserContribution.gift_count).label('gift_count'),
+                    func.sum(UserContribution.chat_count).label('chat_count'),
+                    func.sum(UserContribution.like_count).label('like_count'),
+                    func.max(UserContribution.updated_at).label('updated_at'),
                 ).filter(
-                    and_(
-                        ChatMessage.live_id.in_(live_ids),
-                        ChatMessage.user_id.in_(user_ids)
-                    )
+                    and_(*conditions)
                 ).group_by(
-                    ChatMessage.live_id,
-                    ChatMessage.user_id
-                )
-                for chat_row in chat_query.all():
-                    message_extra[(chat_row.live_id, chat_row.user_id)] = {
-                        'chat_count': int(chat_row.chat_count or 0),
-                        'user_level': chat_row.user_level or 0
-                    }
+                    UserContribution.user_id
+                ).order_by(
+                    func.sum(UserContribution.total_score).desc(),
+                    func.max(UserContribution.updated_at).desc()
+                ).limit(page_size).offset(offset).all()
 
-                gift_query = session.query(
-                    GiftMessage.live_id,
-                    GiftMessage.user_id,
-                    func.max(GiftMessage.user_level).label('user_level')
-                ).filter(
-                    and_(
-                        GiftMessage.live_id.in_(live_ids),
-                        GiftMessage.user_id.in_(user_ids)
-                    )
-                ).group_by(
-                    GiftMessage.live_id,
-                    GiftMessage.user_id
-                )
-                for gift_row in gift_query.all():
-                    extra = message_extra.setdefault(
-                        (gift_row.live_id, gift_row.user_id),
-                        {'chat_count': 0, 'user_level': 0}
-                    )
-                    extra['user_level'] = max(extra['user_level'] or 0, gift_row.user_level or 0)
+                user_ids = [row.user_id for row in agg_rows]
+                live_ids = related_ids or []
+                latest_by_user = {}
+                if user_ids:
+                    profiles = session.query(UserContribution).filter(
+                        UserContribution.user_id.in_(user_ids),
+                        UserContribution.live_id.in_(live_ids)
+                    ).order_by(UserContribution.updated_at.desc()).all()
+                    for profile in profiles:
+                        latest_by_user.setdefault(profile.user_id, profile)
 
-            contributors = []
-            for row in rows:
-                extra = message_extra.get((row.live_id, row.user_id), {})
-                profile = self._latest_profile_fields(
-                    row,
-                    fallback_nickname=row.user_name,
-                    fallback_user_level=extra.get('user_level', 0),
-                    fallback_fans_club_level=row.fans_club_level or 0,
-                )
-                contributors.append({
-                    'live_id': row.live_id,
-                    'anchor_name': row.anchor_name,
-                    'user_id': row.user_id,
-                    'nickname': profile['nickname'],
-                    'contribution_value': int(row.total_score or 0),
-                    'gift_count': int(row.gift_count or 0),
-                    'chat_count': max(int(row.chat_count or 0), extra.get('chat_count', 0)),
-                    'like_count': int(row.like_count or 0),
-                    'user_avatar': profile['user_avatar'],
-                    'user_level': profile['user_level'],
-                    'fans_club_level': profile['fans_club_level']
-                })
+                message_extra = {}
+                if user_ids:
+                    chat_query = session.query(
+                        ChatMessage.user_id,
+                        func.count(ChatMessage.id).label('chat_count'),
+                        func.max(ChatMessage.user_level).label('user_level')
+                    ).filter(
+                        and_(
+                            ChatMessage.live_id.in_(live_ids),
+                            ChatMessage.user_id.in_(user_ids)
+                        )
+                    ).group_by(ChatMessage.user_id)
+                    for chat_row in chat_query.all():
+                        message_extra[chat_row.user_id] = {
+                            'chat_count': int(chat_row.chat_count or 0),
+                            'user_level': chat_row.user_level or 0
+                        }
+
+                    gift_query = session.query(
+                        GiftMessage.user_id,
+                        func.max(GiftMessage.user_level).label('user_level')
+                    ).filter(
+                        and_(
+                            GiftMessage.live_id.in_(live_ids),
+                            GiftMessage.user_id.in_(user_ids)
+                        )
+                    ).group_by(GiftMessage.user_id)
+                    for gift_row in gift_query.all():
+                        extra = message_extra.setdefault(
+                            gift_row.user_id,
+                            {'chat_count': 0, 'user_level': 0}
+                        )
+                        extra['user_level'] = max(extra['user_level'] or 0, gift_row.user_level or 0)
+
+                contributors = []
+                for row in agg_rows:
+                    profile_row = latest_by_user.get(row.user_id)
+                    extra = message_extra.get(row.user_id, {})
+                    profile = self._latest_profile_fields(
+                        profile_row,
+                        fallback_nickname=profile_row.user_name if profile_row else row.user_id,
+                        fallback_user_level=extra.get('user_level', 0),
+                        fallback_fans_club_level=(profile_row.fans_club_level or 0) if profile_row else 0,
+                    )
+                    contributors.append({
+                        'live_id': live_id,
+                        'anchor_name': profile_row.anchor_name if profile_row else None,
+                        'user_id': row.user_id,
+                        'nickname': profile['nickname'],
+                        'contribution_value': int(row.total_score or 0),
+                        'gift_count': int(row.gift_count or 0),
+                        'chat_count': max(int(row.chat_count or 0), extra.get('chat_count', 0)),
+                        'like_count': int(row.like_count or 0),
+                        'user_avatar': profile['user_avatar'],
+                        'user_level': profile['user_level'],
+                        'fans_club_level': profile['fans_club_level']
+                    })
+            else:
+                rows = session.query(UserContribution).filter(
+                    and_(*conditions)
+                ).order_by(
+                    UserContribution.total_score.desc(),
+                    UserContribution.updated_at.desc()
+                ).limit(page_size).offset(offset).all()
+
+                message_extra = {}
+                if rows:
+                    user_ids = [row.user_id for row in rows]
+                    live_ids = [row.live_id for row in rows]
+
+                    chat_query = session.query(
+                        ChatMessage.live_id,
+                        ChatMessage.user_id,
+                        func.count(ChatMessage.id).label('chat_count'),
+                        func.max(ChatMessage.user_level).label('user_level')
+                    ).filter(
+                        and_(
+                            ChatMessage.live_id.in_(live_ids),
+                            ChatMessage.user_id.in_(user_ids)
+                        )
+                    ).group_by(
+                        ChatMessage.live_id,
+                        ChatMessage.user_id
+                    )
+                    for chat_row in chat_query.all():
+                        message_extra[(chat_row.live_id, chat_row.user_id)] = {
+                            'chat_count': int(chat_row.chat_count or 0),
+                            'user_level': chat_row.user_level or 0
+                        }
+
+                    gift_query = session.query(
+                        GiftMessage.live_id,
+                        GiftMessage.user_id,
+                        func.max(GiftMessage.user_level).label('user_level')
+                    ).filter(
+                        and_(
+                            GiftMessage.live_id.in_(live_ids),
+                            GiftMessage.user_id.in_(user_ids)
+                        )
+                    ).group_by(
+                        GiftMessage.live_id,
+                        GiftMessage.user_id
+                    )
+                    for gift_row in gift_query.all():
+                        extra = message_extra.setdefault(
+                            (gift_row.live_id, gift_row.user_id),
+                            {'chat_count': 0, 'user_level': 0}
+                        )
+                        extra['user_level'] = max(extra['user_level'] or 0, gift_row.user_level or 0)
+
+                contributors = []
+                for row in rows:
+                    extra = message_extra.get((row.live_id, row.user_id), {})
+                    profile = self._latest_profile_fields(
+                        row,
+                        fallback_nickname=row.user_name,
+                        fallback_user_level=extra.get('user_level', 0),
+                        fallback_fans_club_level=row.fans_club_level or 0,
+                    )
+                    contributors.append({
+                        'live_id': row.live_id,
+                        'anchor_name': row.anchor_name,
+                        'user_id': row.user_id,
+                        'nickname': profile['nickname'],
+                        'contribution_value': int(row.total_score or 0),
+                        'gift_count': int(row.gift_count or 0),
+                        'chat_count': max(int(row.chat_count or 0), extra.get('chat_count', 0)),
+                        'like_count': int(row.like_count or 0),
+                        'user_avatar': profile['user_avatar'],
+                        'user_level': profile['user_level'],
+                        'fans_club_level': profile['fans_club_level']
+                    })
 
             return {
                 'contributors': contributors,
@@ -884,12 +1029,53 @@ class DataService:
     def get_top_likers(self, live_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
         """获取累积点赞榜（基于 UserContribution.like_count，per-(live_id, user_id) 累积）。
         like_count > 0 才进入榜单；不传 live_id 则跨房间，同一 user_id 在不同房间显示多行。
+        指定 live_id 时会把同一 anchor_id 下的关联房间按 user_id 合并。
         """
         session = self.get_session()
         try:
             conditions = [UserContribution.like_count > 0]
-            if live_id:
-                conditions.append(UserContribution.live_id == live_id)
+            related_ids = self._related_live_ids(session, live_id) if live_id else None
+            if related_ids:
+                conditions.append(UserContribution.live_id.in_(related_ids))
+
+            if live_id and related_ids and len(related_ids) > 1:
+                agg_rows = session.query(
+                    UserContribution.user_id,
+                    func.sum(UserContribution.like_count).label('like_count'),
+                    func.sum(UserContribution.gift_count).label('gift_count'),
+                    func.max(UserContribution.updated_at).label('updated_at'),
+                ).filter(and_(*conditions)).group_by(
+                    UserContribution.user_id
+                ).order_by(
+                    func.sum(UserContribution.like_count).desc(),
+                    func.max(UserContribution.updated_at).desc()
+                ).limit(limit).all()
+
+                user_ids = [row.user_id for row in agg_rows]
+                latest_by_user = {}
+                if user_ids:
+                    profiles = session.query(UserContribution).filter(
+                        UserContribution.user_id.in_(user_ids),
+                        UserContribution.live_id.in_(related_ids)
+                    ).order_by(UserContribution.updated_at.desc()).all()
+                    for profile in profiles:
+                        latest_by_user.setdefault(profile.user_id, profile)
+
+                result = []
+                for row in agg_rows:
+                    profile = latest_by_user.get(row.user_id)
+                    result.append({
+                        'live_id': live_id,
+                        'anchor_name': profile.anchor_name if profile else None,
+                        'user_id': row.user_id,
+                        'user_name': profile.user_name if profile else row.user_id,
+                        'user_avatar': profile.user_avatar if profile else None,
+                        'user_level': (profile.user_level or 0) if profile else 0,
+                        'like_count': int(row.like_count or 0),
+                        'gift_count': int(row.gift_count or 0),
+                        'fans_club_level': (profile.fans_club_level or 0) if profile else 0,
+                    })
+                return result
 
             rows = session.query(UserContribution).filter(
                 and_(*conditions)
@@ -929,7 +1115,8 @@ class DataService:
         try:
             conditions = []
             if live_id:
-                conditions.append(LiveSession.live_id == live_id)
+                related_ids = self._related_live_ids(session, live_id)
+                conditions.append(LiveSession.live_id.in_(related_ids))
             else:
                 # 查询所有有数据的房间
                 conditions.append(LiveSession.live_id.isnot(None))
@@ -1360,7 +1547,8 @@ class DataService:
         """获取房间的直播场次统计列表"""
         session = self.get_session()
         try:
-            query = session.query(LiveSession).filter(LiveSession.live_id == live_id)
+            related_ids = self._related_live_ids(session, live_id)
+            query = session.query(LiveSession).filter(LiveSession.live_id.in_(related_ids))
 
             if start_date:
                 # 添加时间部分，确保包含整天
@@ -1402,9 +1590,11 @@ class DataService:
         session = self.get_session()
         try:
             query = session.query(LiveSession)
+            related_ids = []
 
             if live_id:
-                query = query.filter(LiveSession.live_id == live_id)
+                related_ids = self._related_live_ids(session, live_id)
+                query = query.filter(LiveSession.live_id.in_(related_ids))
 
             if start_date:
                 # 添加时间部分，确保包含整天
@@ -1505,7 +1695,8 @@ class DataService:
                 'peak_viewer_max': peak_viewer_max,
                 'total_duration_seconds': total_duration_seconds,
                 'avg_duration_seconds': avg_duration,
-                'trend': [trend_by_date[key] for key in sorted(trend_by_date.keys())]
+                'trend': [trend_by_date[key] for key in sorted(trend_by_date.keys())],
+                'related_live_ids': related_ids,
             }
         finally:
             session.close()
@@ -1573,10 +1764,11 @@ class DataService:
             # 构建基础查询条件
             chat_conditions = []
             gift_conditions = []
+            related_ids = self._related_live_ids(session, live_id) if live_id else []
 
-            if live_id:
-                chat_conditions.append(ChatMessage.live_id == live_id)
-                gift_conditions.append(GiftMessage.live_id == live_id)
+            if related_ids:
+                chat_conditions.append(ChatMessage.live_id.in_(related_ids))
+                gift_conditions.append(GiftMessage.live_id.in_(related_ids))
 
             if user_id:
                 chat_conditions.append(ChatMessage.user_id == user_id)
@@ -1650,20 +1842,22 @@ class DataService:
 
             # 从 user_contributions 表获取用户头像
             contrib_conditions = []
-            if live_id:
-                contrib_conditions.append(UserContribution.live_id == live_id)
+            if related_ids:
+                contrib_conditions.append(UserContribution.live_id.in_(related_ids))
             if resolved_user_id:
                 contrib_conditions.append(UserContribution.user_id == resolved_user_id)
             elif user_name:
                 contrib_conditions.append(UserContribution.user_name.ilike(f"%{user_name.strip()}%"))
 
             user_contrib = None
+            like_count = 0
             if contrib_conditions:
-                user_contrib = session.query(UserContribution).filter(
+                contrib_rows = session.query(UserContribution).filter(
                     and_(*contrib_conditions)
-                ).order_by(UserContribution.updated_at.desc()).first()
+                ).order_by(UserContribution.updated_at.desc()).all()
+                user_contrib = contrib_rows[0] if contrib_rows else None
+                like_count = sum(int(row.like_count or 0) for row in contrib_rows)
             user_avatar = user_contrib.user_avatar if user_contrib else None
-            like_count = user_contrib.like_count if user_contrib else 0
             if user_contrib and not latest_chat and not latest_gift:
                 display_name = user_contrib.user_name
                 resolved_user_id = user_contrib.user_id
@@ -1821,10 +2015,11 @@ class DataService:
             keyword = f"%{user_name.strip()}%"
             chat_conditions = [ChatMessage.user_name.ilike(keyword)]
             gift_conditions = [GiftMessage.user_name.ilike(keyword)]
+            related_ids = self._related_live_ids(session, live_id) if live_id else []
 
-            if live_id:
-                chat_conditions.append(ChatMessage.live_id == live_id)
-                gift_conditions.append(GiftMessage.live_id == live_id)
+            if related_ids:
+                chat_conditions.append(ChatMessage.live_id.in_(related_ids))
+                gift_conditions.append(GiftMessage.live_id.in_(related_ids))
 
             if session_id:
                 chat_conditions.append(ChatMessage.live_session_id == session_id)
@@ -1928,8 +2123,8 @@ class DataService:
 
             if not users and not session_id and not start_date and not end_date:
                 contrib_conditions = [UserContribution.user_name.ilike(keyword)]
-                if live_id:
-                    contrib_conditions.append(UserContribution.live_id == live_id)
+                if related_ids:
+                    contrib_conditions.append(UserContribution.live_id.in_(related_ids))
                 contrib_rows = session.query(UserContribution).filter(
                     and_(*contrib_conditions)
                 ).order_by(UserContribution.total_score.desc()).limit(limit).all()
@@ -1957,8 +2152,8 @@ class DataService:
             if users:
                 user_ids = [item['user_id'] for item in users.values()]
                 contrib_query = session.query(UserContribution).filter(UserContribution.user_id.in_(user_ids))
-                if live_id:
-                    contrib_query = contrib_query.filter(UserContribution.live_id == live_id)
+                if related_ids:
+                    contrib_query = contrib_query.filter(UserContribution.live_id.in_(related_ids))
                 for row in contrib_query.all():
                     key = (row.live_id, row.user_id)
                     if key in users:
@@ -1971,6 +2166,32 @@ class DataService:
                             'like_count': row.like_count or users[key].get('like_count', 0),
                             'fans_club_level': users[key]['fans_club_level'] or row.fans_club_level or 0,
                         })
+
+            if live_id and related_ids:
+                merged = {}
+                for item in users.values():
+                    uid = item['user_id']
+                    if uid not in merged:
+                        cloned = dict(item)
+                        cloned['live_id'] = live_id
+                        merged[uid] = cloned
+                        continue
+                    existing = merged[uid]
+                    existing['chat_count'] = (existing['chat_count'] or 0) + (item['chat_count'] or 0)
+                    existing['gift_count'] = (existing['gift_count'] or 0) + (item['gift_count'] or 0)
+                    existing['like_count'] = (existing['like_count'] or 0) + (item['like_count'] or 0)
+                    existing['total_value'] = (existing['total_value'] or 0) + (item['total_value'] or 0)
+                    existing['user_level'] = max(existing['user_level'] or 0, item['user_level'] or 0)
+                    existing['fans_club_level'] = max(existing['fans_club_level'] or 0, item['fans_club_level'] or 0)
+                    if item['last_seen_at'] and (
+                        not existing['last_seen_at'] or item['last_seen_at'] > existing['last_seen_at']
+                    ):
+                        existing['last_seen_at'] = item['last_seen_at']
+                        existing['nickname'] = item['nickname']
+                        existing['anchor_name'] = item['anchor_name']
+                        if item.get('user_avatar'):
+                            existing['user_avatar'] = item['user_avatar']
+                users = {(live_id, uid): value for uid, value in merged.items()}
 
             results = sorted(
                 users.values(),
