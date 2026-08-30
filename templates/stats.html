@@ -300,7 +300,7 @@
                         <option value="">全部房间</option>
                         {% raw %}
                         <option v-for="room in rooms" :key="room.live_id" :value="room.live_id">
-                            {{ room.anchor_name || room.live_id }} ({{ room.live_id }}){{ room.is_archived ? ' - 已归档' : '' }}
+                            {{ room.anchor_name || room.live_id }} ({{ room.live_id }}){{ room.is_archived ? ' - 已归档' : '' }}{{ room.has_related ? ' · 同主播已合并' : '' }}
                         </option>
                         {% endraw %}
                     </select>
@@ -326,6 +326,13 @@
                         <span v-text="loading && hasSearched ? '查询中...' : '查询统计'"></span>
                     </button>
                 </div>
+            </div>
+
+            <div v-if="mergedRelatedRooms().length > 1" class="mt-3 text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2" data-related-rooms-banner>
+                已按同一主播合并统计：
+                <span v-for="(room, index) in mergedRelatedRooms()" :key="room.live_id">
+                    <span v-text="(room.anchor_name ? room.anchor_name + ' ' : '') + room.live_id + (room.is_archived ? '（已归档）' : '')"></span><span v-if="index < mergedRelatedRooms().length - 1">、</span>
+                </span>
             </div>
 
             <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">

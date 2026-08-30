@@ -57,6 +57,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'id': room.live_id,
                     'live_id': room.live_id,
                     'anchor_name': room.anchor_name,
+                    'anchor_id': room.anchor_id,
                     'status': room.status,  # 监控状态: monitoring/stopped/offline/error
                     'error_message': room.error_message,
                     'live_status': live_status,  # 直播状态: live/offline
