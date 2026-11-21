@@ -180,7 +180,7 @@ class AnchorIdStatsMergeTests(unittest.TestCase):
         self.assertEqual(messages['stats']['like_count'], 10)
         self.assertEqual(messages['stats']['total_value'], 150)
 
-        users = self.svc.search_users_by_name(live_id='room-new-002', user_name='粉')
+        users = self.svc.search_users_by_name(live_id='room-new-002', user_name='用户')
         self.assertEqual(len(users), 1)
         self.assertEqual(users[0]['user_id'], 'fan-1')
         self.assertEqual(users[0]['gift_count'], 2)
@@ -191,7 +191,7 @@ class AnchorIdStatsMergeTests(unittest.TestCase):
             'room-old-001',
             anchor_name='测试主播',
             user_id='fan-1',
-            user_name='粉',
+            user_name='用户',
             gift_id='g1',
             gift_name='小心心',
             gift_count=1,
@@ -204,7 +204,7 @@ class AnchorIdStatsMergeTests(unittest.TestCase):
             'other-room',
             anchor_name='另一位',
             user_id='fan-1',
-            user_name='粉',
+            user_name='用户',
             gift_id='g2',
             gift_name='小心心',
             gift_count=1,
