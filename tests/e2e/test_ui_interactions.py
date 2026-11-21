@@ -443,3 +443,139 @@ def test_history_custom_hard_delete_modal_and_stats_link(authed_page, base_url):
     dialog.wait_for(state="detached")
     assert delete_hits == [{"confirm_live_id": "e2e_arch_01"}]
 
+
+def test_room_offline_prefills_last_session_and_clears_on_live(authed_page, base_url, factories):
+    """未开播房间自动回填上一场消息与榜单，收到开播实时消息后自动清空预览并切入实时流。"""
+    factories.room(live_id="e2e_offline_prev_01", anchor_name="未开播预览主播")
+
+    authed_page.route(
+        "**/api/rooms/e2e_offline_prev_01",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "room": {
+                        "live_id": "e2e_offline_prev_01",
+                        "anchor_name": "未开播预览主播",
+                        "status": "offline",
+                        "is_active": True,
+                        "is_archived": False,
+                    }
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/e2e_offline_prev_01/current-session",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "session": {
+                        "id": 555,
+                        "status": "ended",
+                        "start_time": "2026-11-20T20:00:00",
+                        "total_income": 300,
+                        "total_gift_count": 3,
+                    }
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/e2e_offline_prev_01/sessions?*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "sessions": [
+                        {
+                            "id": 555,
+                            "status": "ended",
+                            "start_time": "2026-11-20T20:00:00",
+                            "total_income": 300,
+                            "total_gift_count": 3,
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/e2e_offline_prev_01/messages*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "messages": [
+                        {"type": "chat", "user": "昨晚老粉", "user_id": "u_prev_1", "text": "主播明天见"}
+                    ]
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/sessions/555*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "session": {"id": 555, "live_id": "e2e_offline_prev_01"},
+                    "counts": {"chat_count": 1, "gift_count": 0},
+                    "contributors": [
+                        {"user_id": "u_boss_1", "nickname": "昨晚榜一", "contribution_value": 300}
+                    ],
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/top-likers*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "likers": [
+                        {"user_id": "u_like_1", "user_name": "历史点赞王", "like_count": 666}
+                    ]
+                }
+            ),
+        ),
+    )
+
+    authed_page.goto(f"{base_url}/room/e2e_offline_prev_01", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    authed_page.wait_for_function(
+        "() => { const el = document.querySelector('.messages-container'); return el && el.innerText.includes('主播明天见'); }"
+    )
+    body_text = authed_page.locator("body").inner_text()
+    assert "当前未开播" in body_text
+    assert "昨晚榜一" in body_text
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.showLiveMetricCards") is False
+
+    authed_page.locator("button", has_text="点赞榜").click()
+    authed_page.wait_for_timeout(100)
+    assert "历史点赞王" in authed_page.locator(".contributor-container").inner_text()
+
+    authed_page.evaluate(
+        """() => {
+            const vm = document.querySelector('#app').__vue__;
+            vm.currentSession = { id: 556, status: 'live' };
+            vm.handleMessage({ type: 'chat', user_id: 'u_live_1', user: '新场观众', text: '开播啦第一条' });
+        }"""
+    )
+    authed_page.wait_for_timeout(120)
+
+    msg_text = authed_page.locator(".messages-container").inner_text()
+    assert "开播啦第一条" in msg_text
+    assert "主播明天见" not in msg_text
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.isOfflinePreview") is False
+
+

@@ -172,7 +172,8 @@ class GiftMessage(betterproto.Message):
     public_area_common: "PublicAreaCommon" = betterproto.message_field(18)
     tray_display_text: "Text" = betterproto.message_field(19)
     banned_display_effects: int = betterproto.uint64_field(20)
-    # GiftTrayInfo trayInfo = 21;  AssetEffectMixInfo assetEffectMixInfo = 22;
+    tray_info: "GiftTrayInfo" = betterproto.message_field(21)
+    # AssetEffectMixInfo assetEffectMixInfo = 22;
     display_for_self: bool = betterproto.bool_field(25)
     interact_gift_info: str = betterproto.string_field(26)
     diy_item_info: str = betterproto.string_field(27)
@@ -185,6 +186,38 @@ class GiftMessage(betterproto.Message):
     force_display_effects: int = betterproto.uint64_field(34)
     trace_id: str = betterproto.string_field(35)
     effect_display_ts: int = betterproto.uint64_field(36)
+    gift_play_param: str = betterproto.string_field(40)
+    series_gift_data: List["SeriesPlayGift"] = betterproto.message_field(42)
+    count: int = betterproto.int64_field(44)
+
+
+@dataclass
+class GiftTrayInfo(betterproto.Message):
+    origin_gift_id: int = betterproto.int64_field(17)
+    buff_level: int = betterproto.int64_field(18)
+    toolbar_card_name: str = betterproto.string_field(19)
+    tray_extra_text: str = betterproto.string_field(24)
+
+
+@dataclass
+class GiftBuffInfo(betterproto.Message):
+    text: str = betterproto.string_field(1)
+    buff_gift_id: int = betterproto.int64_field(6)
+    buff_level: int = betterproto.int32_field(7)
+    buff_can_send: bool = betterproto.bool_field(8)
+    buff_diamond_count: int = betterproto.int64_field(9)
+
+
+@dataclass
+class SeriesPlayGift(betterproto.Message):
+    gift_struct: "GiftStruct" = betterproto.message_field(1)
+    diy_item_info: str = betterproto.string_field(4)
+
+
+@dataclass
+class BindingGiftMessage(betterproto.Message):
+    msg: "GiftMessage" = betterproto.message_field(1)
+    common: "Common" = betterproto.message_field(2)
 
 
 @dataclass
@@ -211,6 +244,7 @@ class GiftStruct(betterproto.Message):
     # specialEffectsMap = 20;
     icon: "Image" = betterproto.message_field(21)
     action_type: int = betterproto.uint32_field(22)
+    gift_buff_infos: List["GiftBuffInfo"] = betterproto.message_field(45)
 
 
 @dataclass

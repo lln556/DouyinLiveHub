@@ -3,7 +3,9 @@
 抖音直播监控平台配置
 """
 import os
+import json
 import logging
+import math
 import secrets
 import sys
 from pathlib import Path
@@ -15,6 +17,45 @@ BASE_DIR = Path(__file__).resolve().parent
 # 环境变量仍优先用于普通配置，Cookie 在下方单独读取持久化值。
 load_dotenv(BASE_DIR / '.env')
 logger = logging.getLogger(__name__)
+
+
+SPECIAL_GIFT_DIAMOND_OVERRIDES = {
+    '点点星光': 9,
+    '闪烁星河': 99,
+    '烈焰跑车': 6000,
+    '落日追光': 6000,
+    '至尊超跑': 12000,
+    '无界超跑': 36000,
+}
+
+
+def parse_gift_price_overrides(raw_value=None) -> dict:
+    """合并合法的环境配置；每次返回独立映射，不修改内置价格。"""
+    overrides = SPECIAL_GIFT_DIAMOND_OVERRIDES.copy()
+    raw_value = os.getenv('GIFT_PRICE_OVERRIDES', '') if raw_value is None else raw_value
+    if not raw_value.strip():
+        return overrides
+    try:
+        configured = json.loads(raw_value)
+        if not isinstance(configured, dict):
+            raise ValueError('expected JSON object')
+    except (ValueError, TypeError):
+        logger.warning('GIFT_PRICE_OVERRIDES 必须是 JSON 对象，已使用默认礼物价格')
+        return overrides
+    for name, value in configured.items():
+        if (isinstance(name, str) and name.strip()
+                and isinstance(value, (int, float)) and not isinstance(value, bool)
+                and value >= 0 and math.isfinite(value)):
+            overrides[name.strip()] = value
+    return overrides
+
+
+class Config:
+    SPECIAL_GIFT_DIAMOND_OVERRIDES = SPECIAL_GIFT_DIAMOND_OVERRIDES
+    GIFT_PRICE_OVERRIDES = parse_gift_price_overrides()
+
+
+GIFT_PRICE_OVERRIDES = Config.GIFT_PRICE_OVERRIDES
 
 
 def _is_running_in_docker() -> bool:

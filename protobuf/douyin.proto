@@ -133,7 +133,7 @@ message GiftMessage {
   PublicAreaCommon publicAreaCommon = 18;
   Text trayDisplayText = 19;
   uint64 bannedDisplayEffects = 20;
-  //  GiftTrayInfo trayInfo = 21;
+  GiftTrayInfo trayInfo = 21;
   //  AssetEffectMixInfo assetEffectMixInfo = 22;
   bool displayForSelf = 25;
   string interactGiftInfo = 26;
@@ -147,6 +147,36 @@ message GiftMessage {
   uint64 forceDisplayEffects = 34;
   string traceId = 35;
   uint64 effectDisplayTs = 36;
+  string giftPlayParam = 40;
+  repeated SeriesPlayGift seriesGiftData = 42;
+  int64 count = 44;
+}
+
+// 进阶礼物托盘信息
+message GiftTrayInfo {
+  int64 originGiftId = 17;
+  int64 buffLevel = 18;
+  string toolbarCardName = 19;
+  string trayExtraText = 24;
+}
+
+message GiftBuffInfo {
+  string text = 1;
+  int64 buffGiftId = 6;
+  int32 buffLevel = 7;
+  bool buffCanSend = 8;
+  int64 buffDiamondCount = 9;
+}
+
+// 礼物盒子内开出的子礼物
+message SeriesPlayGift {
+  GiftStruct giftStruct = 1;
+  string diyItemInfo = 4;
+}
+
+message BindingGiftMessage {
+  GiftMessage msg = 1;
+  Common common = 2;
 }
 
 message GiftStruct {
@@ -172,8 +202,7 @@ message GiftStruct {
   //  specialEffectsMap = 20;
   Image icon = 21;
   uint32 actionType = 22;
-  // fixme 后面的就不写了还有几十个属性
-
+  repeated GiftBuffInfo giftBuffInfos = 45;
 }
 
 message GiftIMPriority {

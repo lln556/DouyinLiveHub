@@ -242,6 +242,7 @@ class DouyinLiveWebFetcher:
     BUSINESS_MESSAGE_METHODS = {
         'WebcastChatMessage',
         'WebcastGiftMessage',
+        'WebcastBindingGiftMessage',
         'WebcastLikeMessage',
         'WebcastMemberMessage',
         'WebcastSocialMessage',
@@ -910,6 +911,7 @@ class DouyinLiveWebFetcher:
                     {
                         'WebcastChatMessage': self._parseChatMsg,  # 聊天消息
                         'WebcastGiftMessage': self._parseGiftMsg,  # 礼物消息
+                        'WebcastBindingGiftMessage': self._parseBindingGiftMsg,
                         'WebcastLikeMessage': self._parseLikeMsg,  # 点赞消息
                         'WebcastMemberMessage': self._parseMemberMsg,  # 进入直播间消息
                         'WebcastSocialMessage': self._parseSocialMsg,  # 关注消息
@@ -947,6 +949,17 @@ class DouyinLiveWebFetcher:
         gift_name = message.gift.name
         gift_cnt = message.combo_count
         self.log.debug(f"【礼物】{user_name} 送出了 {gift_name}x{gift_cnt}")
+
+    def _parseBindingGiftMsg(self, payload):
+        """安全解析绑定礼物，供协议日志和业务活跃状态跟踪使用。"""
+        try:
+            message = BindingGiftMessage().parse(payload)
+            self.log.debug(
+                f"【绑定礼物】{message.msg.user.nick_name} 送出了 "
+                f"{message.msg.gift.name}x{message.msg.group_count or message.msg.repeat_count or 1}"
+            )
+        except Exception:
+            self.log.debug("绑定礼物消息解析失败")
 
     def _parseLikeMsg(self, payload):
         '''点赞消息'''

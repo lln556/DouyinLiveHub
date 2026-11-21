@@ -18,53 +18,32 @@
             --muted: #6b7280;
             --line: #e5e7eb;
             --surface: #ffffff;
-            --page: #f3f4f6;
-            --blue: #2563eb;
-            --teal: #0f766e;
-            --amber: #d97706;
-            --rose: #dc2626;
+            --page: #f6f7f9;
+            --amber: #b45309;
+            --rose: #e11d48;
         }
         body {
-            background:
-                radial-gradient(circle at 18% -8%, rgba(37, 99, 235, 0.10), transparent 30%),
-                radial-gradient(circle at 82% 0%, rgba(15, 118, 110, 0.08), transparent 28%),
-                var(--page);
+            background: var(--page);
             color: var(--ink);
         }
         .page-shell {
-            max-width: 1440px;
+            max-width: 1280px;
         }
-        .topbar {
-            border-bottom: 1px solid rgba(229, 231, 235, 0.9);
-            padding-bottom: 18px;
-        }
-        .dashboard-panel {
-            background: rgba(255, 255, 255, 0.96);
-            border: 1px solid rgba(229, 231, 235, 0.95);
-            border-radius: 8px;
-            box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
-        }
-        .filter-panel {
-            background: rgba(255, 255, 255, 0.94);
-            border: 1px solid rgba(229, 231, 235, 0.9);
-            border-radius: 8px;
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+        .dashboard-panel,
+        .filter-panel,
+        .table-panel,
+        .empty-panel {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            box-shadow: var(--hub-shadow-sm);
         }
         .metric-card {
-            min-height: 116px;
-            background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-            border: 1px solid rgba(229, 231, 235, 0.95);
-            border-radius: 8px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
-        }
-        .metric-card::before {
-            content: "";
-            display: block;
-            width: 32px;
-            height: 3px;
-            border-radius: 999px;
-            margin-bottom: 14px;
-            background: var(--metric-accent, var(--blue));
+            min-height: 108px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            box-shadow: var(--hub-shadow-sm);
         }
         .metric-value {
             font-variant-numeric: tabular-nums;
@@ -75,9 +54,8 @@
             white-space: nowrap;
         }
         .trend-chart-frame {
-            height: 190px;
-            background:
-                linear-gradient(180deg, rgba(248, 250, 252, 0.88), rgba(255, 255, 255, 0.96));
+            height: 200px;
+            background: #ffffff;
         }
         .trend-chart-canvas {
             width: 100%;
@@ -88,35 +66,24 @@
             overflow: auto;
         }
         .metric-chip {
-            border: 1px solid rgba(229, 231, 235, 0.92);
+            border: 1px solid #e5e7eb;
             background: #f9fafb;
             border-radius: 8px;
         }
         .chart-tab {
             min-width: 64px;
         }
-        .table-panel {
-            background: #fff;
-            border: 1px solid rgba(229, 231, 235, 0.95);
-            border-radius: 8px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
-        }
         .table-panel-header {
-            background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+            background: #ffffff;
         }
         .empty-panel {
             min-height: 280px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background:
-                linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-            border: 1px solid rgba(229, 231, 235, 0.95);
-            border-radius: 8px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
         }
         .soft-button {
-            border-radius: 8px;
+            border-radius: 7px;
         }
         @media (max-width: 640px) {
             .trend-chart-frame {
@@ -131,7 +98,8 @@
             position: fixed;
             inset: 0;
             z-index: 50;
-            background: rgba(17, 24, 39, 0.55);
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(2px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -139,83 +107,86 @@
         }
         .modal-content,
         .user-modal-content {
-            width: min(1120px, 100%);
+            width: min(960px, 100%);
             max-height: 90vh;
             overflow: auto;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            box-shadow: var(--hub-shadow-lg);
         }
         .user-avatar-large {
-            width: 64px;
-            height: 64px;
+            width: 56px;
+            height: 56px;
             border-radius: 9999px;
+            border: 1px solid #e5e7eb;
             object-fit: cover;
-            background: #e5e7eb;
+            background: #f3f4f6;
         }
         .user-avatar-fallback {
-            background: linear-gradient(135deg, #fbbf24, #ec4899);
-            color: white;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            background: #18181b;
+            color: #ffffff;
         }
         .user-header {
-            padding: 24px;
-            color: white;
-            background: linear-gradient(135deg, #2563eb, #0f766e);
+            padding: 20px 24px;
+            color: #111827;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
         }
         .user-tab-button {
-            padding: 12px 16px;
-            font-size: 14px;
+            padding: 11px 16px;
+            font-size: 13.5px;
             font-weight: 600;
-            color: #4b5563;
+            color: #6b7280;
             background: white;
         }
         .user-tab-button.active {
-            color: #2563eb;
-            border-bottom: 2px solid #2563eb;
+            color: #111827;
+            border-bottom: 2px solid #111827;
         }
         .user-stat-chips {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 8px;
-            margin-top: 16px;
+            margin-top: 14px;
         }
         @media (max-width: 480px) {
             .user-stat-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         .user-stat-chip {
-            background: rgba(0, 0, 0, 0.22);
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 8px 12px 10px;
             text-align: center;
-            color: white;
+            color: #111827;
             position: relative;
             overflow: hidden;
         }
         .user-stat-chip::after {
             content: '';
             position: absolute;
-            left: 10px;
-            right: 10px;
+            left: 12px;
+            right: 12px;
             bottom: 0;
             height: 2px;
             background: var(--chip-accent, transparent);
             border-radius: 1px;
         }
-        .user-stat-chip[data-chip="messages"] { --chip-accent: #93c5fd; }
-        .user-stat-chip[data-chip="chat"] { --chip-accent: #67e8f9; }
-        .user-stat-chip[data-chip="gift"] { --chip-accent: #f9a8d4; }
-        .user-stat-chip[data-chip="like"] { --chip-accent: #fb7185; }
-        .user-stat-chip[data-chip="like"] .user-stat-chip-value { color: #fecdd3; }
+        .user-stat-chip[data-chip="messages"] { --chip-accent: #18181b; }
+        .user-stat-chip[data-chip="chat"] { --chip-accent: #6b7280; }
+        .user-stat-chip[data-chip="gift"] { --chip-accent: #d97706; }
+        .user-stat-chip[data-chip="like"] { --chip-accent: #e11d48; }
+        .user-stat-chip[data-chip="like"] .user-stat-chip-value { color: #e11d48; }
         .user-stat-chip-label {
             font-size: 11px;
-            color: rgba(255, 255, 255, 0.75);
+            color: #6b7280;
             margin-bottom: 2px;
-            letter-spacing: 0.5px;
         }
         .user-stat-chip-value {
             font-size: 18px;
             font-weight: 700;
+            font-variant-numeric: tabular-nums;
             line-height: 1.2;
         }
         .user-messages-body {
@@ -235,7 +206,7 @@
             background: #f9fafb;
         }
         .user-gift-card {
-            background: #fff7ed;
+            background: #fffbeb;
         }
         .tab-btn {
             padding: 10px 0;
@@ -243,8 +214,8 @@
             border-bottom: 2px solid transparent;
         }
         .tab-btn.active {
-            color: #2563eb;
-            border-bottom-color: #2563eb;
+            color: #111827;
+            border-bottom-color: #111827;
         }
         .clickable-user {
             cursor: pointer;
@@ -282,27 +253,24 @@
 
         <div class="hub-container page-shell mx-auto">
         <!-- 头部 -->
-        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5">
-            <div>
-                <h1 class="text-2xl font-bold text-gray-900">直播数据统计</h1>
-                <p class="text-sm text-gray-500 mt-1">打开即自动统计，支持跨房间总览与单房间场次下钻</p>
-            </div>
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h1 class="text-xl font-bold text-gray-900">数据统计</h1>
             <div v-if="selectedRoomId" class="flex items-center gap-2">
                 <a :href="'/room/' + encodeURIComponent(selectedRoomId)" class="hub-btn hub-btn-secondary">
-                    进入该房间直播间 →
+                    进入该房间直播间
                 </a>
             </div>
         </div>
 
         <!-- 筛选条件 -->
-        <div class="filter-panel p-5 mb-6">
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div class="filter-panel p-4 sm:p-5 mb-5">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
                 <div class="lg:col-span-3">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">统计范围</label>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">统计范围</label>
                     <select
                         v-model="selectedRoomId"
                         @change="loadRoomData"
-                        class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm bg-white">
+                        class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm bg-white">
                         <option value="">全部房间</option>
                         {% raw %}
                         <option v-for="room in rooms" :key="room.live_id" :value="room.live_id">
@@ -312,90 +280,91 @@
                     </select>
                 </div>
 
-                <div class="lg:col-span-6">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">统计周期</label>
-                    <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        <button @click="timeRange='7days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '7days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近7天</button>
-                        <button @click="timeRange='30days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === '30days' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近30天</button>
-                        <button @click="timeRange='month'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'month' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按月份</button>
-                        <button @click="timeRange='year'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'year' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按年份</button>
-                        <button @click="timeRange='total'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'total' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">总榜</button>
-                        <button @click="timeRange='custom'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border', timeRange === 'custom' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">自定义</button>
+                <div class="lg:col-span-7">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">统计周期</label>
+                    <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                        <button @click="timeRange='7days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border font-medium', timeRange === '7days' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近7天</button>
+                        <button @click="timeRange='30days'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border font-medium', timeRange === '30days' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">近30天</button>
+                        <button @click="timeRange='month'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border font-medium', timeRange === 'month' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按月份</button>
+                        <button @click="timeRange='year'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border font-medium', timeRange === 'year' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">按年份</button>
+                        <button @click="timeRange='total'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border font-medium', timeRange === 'total' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">总榜</button>
+                        <button @click="timeRange='custom'; onTimeRangeChange()" :class="['px-3 py-2 rounded-lg text-sm border font-medium', timeRange === 'custom' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50']">自定义</button>
                     </div>
                 </div>
 
-                <div class="lg:col-span-3 flex items-end">
+                <div class="lg:col-span-2 flex items-end">
                     <button
                         @click="loadData"
                         :disabled="loading && hasSearched"
-                        :class="['w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 text-sm font-medium shadow-sm']">
+                        class="w-full hub-btn hub-btn-primary py-2">
                         <span v-text="loading && hasSearched ? '刷新中...' : '刷新数据'"></span>
                     </button>
                 </div>
             </div>
 
-            <div v-if="mergedRelatedRooms().length > 1" class="mt-3 text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2" data-related-rooms-banner>
+            <div v-if="mergedRelatedRooms().length > 1" class="mt-3 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2" data-related-rooms-banner>
                 已按同一主播合并统计：
                 <span v-for="(room, index) in mergedRelatedRooms()" :key="room.live_id">
                     <span v-text="(room.anchor_name ? room.anchor_name + ' ' : '') + room.live_id + (room.is_archived ? '（已归档）' : '')"></span><span v-if="index < mergedRelatedRooms().length - 1">、</span>
                 </span>
             </div>
 
-            <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <div class="mt-3.5 grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
                 <div v-if="timeRange === 'month'" class="md:col-span-3">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">月份</label>
-                    <input v-model="selectedMonth" @change="autoLoadSelectedRoomStats" type="month" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">月份</label>
+                    <input v-model="selectedMonth" @change="autoLoadSelectedRoomStats" type="month" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm">
                 </div>
                 <div v-if="timeRange === 'year'" class="md:col-span-3">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">年份</label>
-                    <input v-model="selectedYear" @change="autoLoadSelectedRoomStats" type="number" min="2000" max="2100" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">年份</label>
+                    <input v-model="selectedYear" @change="autoLoadSelectedRoomStats" type="number" min="2000" max="2100" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm">
                 </div>
                 <template v-if="timeRange === 'custom'">
                     <div class="md:col-span-3">
-                        <label class="block text-xs font-medium text-gray-600 mb-1">开始日期</label>
-                        <input v-model="customStartDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="todayDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <label class="block text-xs font-medium text-gray-500 mb-1">开始日期</label>
+                        <input v-model="customStartDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="todayDate" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm">
                     </div>
                     <div class="md:col-span-3">
-                        <label class="block text-xs font-medium text-gray-600 mb-1">结束日期</label>
-                        <input v-model="customEndDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="todayDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <label class="block text-xs font-medium text-gray-500 mb-1">结束日期</label>
+                        <input v-model="customEndDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="todayDate" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm">
                     </div>
                 </template>
 
                 <div class="md:col-span-6">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">按用户名查消息</label>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">按用户名查消息</label>
                     <form @submit.prevent="searchStatsUserByName" class="relative">
                         <input
                             v-model.trim="userNameSearch"
                             @focus="userSearchFocused = true"
                             @blur="onUserSearchBlur"
                             type="text"
-                            class="w-full min-w-0 pl-9 pr-20 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                            class="w-full min-w-0 pl-9 pr-20 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm"
                             placeholder="输入用户名自动搜索">
-                        <svg class="absolute left-3 top-2.5 w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
+                        <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
                         </svg>
                         <button
                             type="submit"
                             :disabled="userSearchLoading"
-                            class="absolute right-1 top-1 px-3 py-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 disabled:bg-indigo-300 text-xs font-medium">
+                            class="absolute right-1 top-1 px-3 py-1.5 bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50 text-xs font-medium">
                             <span v-text="userSearchLoading ? '搜索中' : '搜索'"></span>
                         </button>
 
                         <div v-if="userSearchFocused && (userSearchLoading || userSearchResults.length > 0 || userSearchHasSearched || userSearchError)"
-                             class="absolute left-0 right-0 top-full mt-2 border rounded-lg overflow-hidden bg-white shadow-xl z-40">
+                             class="absolute left-0 right-0 top-full mt-2 border border-gray-200 rounded-lg overflow-hidden bg-white shadow-xl z-40">
                             <div v-if="userSearchLoading" class="px-3 py-4 text-center text-sm text-gray-400">搜索中...</div>
                             <div v-else-if="userSearchResults.length > 0" class="max-h-80 overflow-y-auto">
                                 <button
                                     v-for="user in userSearchResults"
                                     :key="user.live_id + '_' + user.user_id"
+                                    type="button"
                                     @mousedown.prevent="selectStatsSearchedUser(user)"
-                                    class="w-full px-3 py-2 flex items-center justify-between hover:bg-indigo-50 border-b last:border-b-0 text-left">
+                                    class="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 border-b last:border-b-0 text-left">
                                     <div class="flex items-center min-w-0">
                                         <img v-if="user.user_avatar" :src="user.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
-                                        <div v-else class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold mr-2"
+                                        <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xs font-bold mr-2"
                                              v-text="(user.nickname || user.user_id || 'U').substring(0, 1)"></div>
                                         <div class="min-w-0">
-                                            <div class="text-sm font-medium text-gray-800 truncate" v-text="user.nickname || user.user_id"></div>
+                                            <div class="text-sm font-medium text-gray-900 truncate" v-text="user.nickname || user.user_id"></div>
                                             <div class="text-xs text-gray-400 truncate">
                                                 <span v-text="user.anchor_name || user.live_id || '全部房间'"></span>
                                                 <span class="mx-1">·</span>
@@ -403,9 +372,9 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="text-right text-xs text-gray-500 flex-shrink-0 ml-3">
+                                    <div class="text-right text-xs text-gray-500 flex-shrink-0 ml-3 hub-num">
                                         <div v-text="'消息 ' + formatNumber(user.total_messages || 0)"></div>
-                                        <div class="text-yellow-600" v-text="formatNumber(user.total_value || 0) + ' 钻石'"></div>
+                                        <div class="text-yellow-700 font-semibold" v-text="formatNumber(user.total_value || 0) + ' 钻石'"></div>
                                     </div>
                                 </button>
                             </div>
@@ -413,7 +382,7 @@
                                 <span v-text="userSearchError || '未找到匹配用户'"></span>
                             </div>
                             <div v-if="userSearchResults.length > 0" class="px-3 py-2 bg-gray-50 text-xs text-gray-400">
-                                点击用户查看当前筛选范围内的详细消息
+                                点击用户查看详细消息
                             </div>
                         </div>
                     </form>
@@ -422,45 +391,45 @@
         </div>
 
         {% raw %}
-        <div v-if="hasSearched" class="space-y-6">
+        <div v-if="hasSearched" class="space-y-5">
             <section data-dashboard-section="core-metrics" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <article data-metric-card="total-income" class="metric-card p-5" style="--metric-accent: #d97706;">
-                    <div class="text-xs font-medium text-gray-500 mb-4">总收入</div>
-                    <div class="flex items-baseline gap-2 min-w-0">
+                <article data-metric-card="total-income" class="metric-card p-5">
+                    <div class="text-xs font-medium text-gray-500 mb-3">总收入</div>
+                    <div class="flex items-baseline gap-1.5 min-w-0">
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="formatInteger(stats.total_income)"></span>
-                        <span class="metric-unit text-xs font-semibold text-yellow-600">钻石</span>
+                        <span class="metric-unit text-xs font-semibold text-yellow-700">钻石</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4" title="仅统计本周期内有收入的场次，未产生收入的场次不计入分母">
-                        场均 <span class="text-gray-600" v-text="formatAvgIncome()"></span>
+                    <div class="text-xs text-gray-400 mt-3" title="仅统计本周期内有收入的场次，未产生收入的场次不计入分母">
+                        场均 <span class="text-gray-700 hub-num" v-text="formatAvgIncome()"></span>
                     </div>
                 </article>
 
-                <article data-metric-card="total-sessions" class="metric-card p-5" style="--metric-accent: #2563eb;">
-                    <div class="text-xs font-medium text-gray-500 mb-4">直播场次</div>
-                    <div class="flex items-baseline gap-2">
+                <article data-metric-card="total-sessions" class="metric-card p-5">
+                    <div class="text-xs font-medium text-gray-500 mb-3">直播场次</div>
+                    <div class="flex items-baseline gap-1.5">
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="stats.total_sessions || 0"></span>
-                        <span class="metric-unit text-xs font-semibold text-blue-600">场</span>
+                        <span class="metric-unit text-xs font-medium text-gray-500">场</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4">直播中 <span class="text-green-600" v-text="stats.live_sessions || 0"></span>，已结束 <span v-text="stats.ended_sessions || 0"></span></div>
+                    <div class="text-xs text-gray-400 mt-3 hub-num">直播中 <span class="text-red-600 font-semibold" v-text="stats.live_sessions || 0"></span>，已结束 <span class="text-gray-700" v-text="stats.ended_sessions || 0"></span></div>
                 </article>
 
-                <article data-metric-card="total-gifts" class="metric-card p-5" style="--metric-accent: #db2777;">
-                    <div class="text-xs font-medium text-gray-500 mb-4">总礼物数</div>
-                    <div class="flex items-baseline gap-2">
+                <article data-metric-card="total-gifts" class="metric-card p-5">
+                    <div class="text-xs font-medium text-gray-500 mb-3">总礼物数</div>
+                    <div class="flex items-baseline gap-1.5">
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="formatNumber(stats.total_gift_count)"></span>
-                        <span class="metric-unit text-xs font-semibold text-pink-600">件</span>
+                        <span class="metric-unit text-xs font-medium text-gray-500">件</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4">弹幕 <span class="text-gray-600" v-text="formatNumber(stats.total_chat_count)"></span></div>
+                    <div class="text-xs text-gray-400 mt-3 hub-num">弹幕 <span class="text-gray-700" v-text="formatNumber(stats.total_chat_count)"></span></div>
                 </article>
 
-                <article data-metric-card="total-likes" class="metric-card p-5" style="--metric-accent: #dc2626;">
-                    <div class="text-xs font-medium text-gray-500 mb-4">总点赞数</div>
-                    <div class="flex items-baseline gap-2">
+                <article data-metric-card="total-likes" class="metric-card p-5">
+                    <div class="text-xs font-medium text-gray-500 mb-3">总点赞数</div>
+                    <div class="flex items-baseline gap-1.5">
                         <span class="metric-value text-2xl font-bold text-gray-900" v-text="formatNumber(stats.total_like_count)"></span>
-                        <span class="metric-unit text-xs font-semibold text-red-500">次</span>
+                        <span class="metric-unit text-xs font-medium text-gray-500">次</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-4" title="仅统计本周期内有点赞的场次，零点赞场次不计入分母">
-                        场均 <span class="text-gray-600" v-text="formatAvgLikes()"></span>
+                    <div class="text-xs text-gray-400 mt-3 hub-num" title="仅统计本周期内有点赞的场次，零点赞场次不计入分母">
+                        场均 <span class="text-gray-700" v-text="formatAvgLikes()"></span>
                     </div>
                 </article>
             </section>
@@ -469,7 +438,7 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="metric-chip px-3 py-2">
                         <div class="text-xs text-gray-500">峰值观看</div>
-                        <div class="mt-1 font-semibold text-gray-900" v-text="formatNumber(stats.peak_viewer_max)"></div>
+                        <div class="mt-1 font-semibold text-gray-900 hub-num" v-text="formatNumber(stats.peak_viewer_max)"></div>
                     </div>
                     <div class="metric-chip px-3 py-2">
                         <div class="text-xs text-gray-500">直播时长</div>
@@ -487,18 +456,15 @@
                     </div>
                     <div class="metric-chip px-3 py-2" title="仅统计本周期内有收入的场次，未产生收入的场次不计入分母">
                         <div class="text-xs text-gray-500">场均收入</div>
-                        <div class="mt-1 font-semibold text-gray-900" v-text="formatAvgIncome()"></div>
+                        <div class="mt-1 font-semibold text-gray-900 hub-num" v-text="formatAvgIncome()"></div>
                     </div>
                 </div>
             </section>
 
             <section data-dashboard-section="trend-chart" class="dashboard-panel overflow-hidden">
-                <div class="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                    <div>
-                        <h2 class="text-base font-bold text-gray-900">趋势分析</h2>
-                        <p class="text-xs text-gray-500 mt-1">按开播日期汇总当前筛选范围内的场次表现</p>
-                    </div>
-                    <div class="grid grid-cols-2 sm:flex gap-2">
+                <div class="px-5 py-3.5 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <h2 class="text-base font-bold text-gray-900">趋势分析</h2>
+                    <div class="grid grid-cols-2 sm:flex gap-1.5">
                         <button
                             v-for="metric in chartMetrics"
                             :key="metric.key"
@@ -514,20 +480,20 @@
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4">
                         <div class="lg:col-span-6">
                             <div class="text-xs text-gray-500" v-text="currentChartMetricConfig().label"></div>
-                            <div class="mt-1 text-2xl font-bold text-gray-900" v-text="formatChartValue(trendTotalValue())"></div>
+                            <div class="mt-1 text-2xl font-bold text-gray-900 hub-num" v-text="formatChartValue(trendTotalValue())"></div>
                         </div>
                         <div class="lg:col-span-6 grid grid-cols-3 gap-2">
                             <div class="metric-chip px-3 py-2">
                                 <div class="text-xs text-gray-500">日期点</div>
-                                <div class="text-sm font-semibold text-gray-900 mt-1" v-text="trendRows().length"></div>
+                                <div class="text-sm font-semibold text-gray-900 hub-num mt-1" v-text="trendRows().length"></div>
                             </div>
                             <div class="metric-chip px-3 py-2">
                                 <div class="text-xs text-gray-500">最高</div>
-                                <div class="text-sm font-semibold text-gray-900 mt-1" v-text="formatChartValue(trendPeakValue())"></div>
+                                <div class="text-sm font-semibold text-gray-900 hub-num mt-1" v-text="formatChartValue(trendPeakValue())"></div>
                             </div>
                             <div class="metric-chip px-3 py-2">
                                 <div class="text-xs text-gray-500">日均</div>
-                                <div class="text-sm font-semibold text-gray-900 mt-1" v-text="formatChartValue(trendAverageValue())"></div>
+                                <div class="text-sm font-semibold text-gray-900 hub-num mt-1" v-text="formatChartValue(trendAverageValue())"></div>
                             </div>
                         </div>
                     </div>
@@ -541,36 +507,33 @@
                 </div>
             </section>
 
-            <section data-dashboard-section="detail-grid" class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            <section data-dashboard-section="detail-grid" class="grid grid-cols-1 xl:grid-cols-12 gap-5">
                 <div class="xl:col-span-7 table-panel overflow-hidden">
-                    <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
+                    <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50">
                         <button
                             @click="setRankTab('gift')"
-                            :class="['soft-button px-3 py-1.5 text-sm font-semibold transition-all',
+                            :class="['soft-button px-3 py-1.5 text-xs font-semibold transition-all',
                                 activeRankTab === 'gift'
-                                    ? 'bg-yellow-500 text-white shadow-sm'
-                                    : 'bg-white text-gray-500 border border-gray-200 hover:bg-yellow-50']">
+                                    ? 'bg-gray-900 text-white'
+                                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100']">
                             贡献榜
                         </button>
                         <button
                             @click="setRankTab('like')"
-                            :class="['soft-button px-3 py-1.5 text-sm font-semibold transition-all',
+                            :class="['soft-button px-3 py-1.5 text-xs font-semibold transition-all',
                                 activeRankTab === 'like'
-                                    ? 'bg-red-500 text-white shadow-sm'
-                                    : 'bg-white text-gray-500 border border-gray-200 hover:bg-red-50']">
+                                    ? 'bg-gray-900 text-white'
+                                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100']">
                             点赞榜
                         </button>
                         <span v-if="activeRankTab === 'like'" class="ml-auto text-xs text-gray-400">
-                            点赞榜仅看累积，不支持时间筛选
+                            点赞榜为房间累积统计
                         </span>
                     </div>
-                    <div class="table-panel-header px-4 py-3 border-b flex justify-between items-center">
-                        <div>
-                            <h2 class="text-base font-bold text-gray-800" v-text="activeRankTab === 'gift' ? '贡献榜' : '累积点赞榜'"></h2>
-                            <div class="text-xs text-gray-400 mt-1">按当前筛选范围统计</div>
-                        </div>
-                        <span v-if="activeRankTab === 'gift'" class="text-xs text-gray-500">共 {{ contributorPagination.total }} 人</span>
-                        <span v-else class="text-xs text-gray-500">共 {{ likers.length }} 人</span>
+                    <div class="table-panel-header px-4 py-3 border-b border-gray-100 flex justify-between items-center">
+                        <h2 class="text-sm font-bold text-gray-900" v-text="activeRankTab === 'gift' ? '礼物贡献榜' : '累积点赞榜'"></h2>
+                        <span v-if="activeRankTab === 'gift'" class="text-xs text-gray-500 hub-num">共 {{ contributorPagination.total }} 人</span>
+                        <span v-else class="text-xs text-gray-500 hub-num">共 {{ likers.length }} 人</span>
                     </div>
 
                     <div class="dashboard-table">
@@ -598,14 +561,14 @@
                                 <tr v-if="contributors.length === 0">
                                     <td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">暂无数据</td>
                                 </tr>
-                                <tr v-for="(contributor, index) in contributors" :key="contributor.live_id + '-' + contributor.user_id" class="hover:bg-yellow-50 transition-colors">
-                                    <td class="px-3 py-2 whitespace-nowrap">
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 font-bold text-xs" v-text="(contributorPagination.page - 1) * contributorPagination.page_size + index + 1"></span>
+                                <tr v-for="(contributor, index) in contributors" :key="contributor.live_id + '-' + contributor.user_id" class="hover:bg-gray-50 transition-colors">
+                                    <td class="px-3 py-2.5 whitespace-nowrap">
+                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-gray-100 text-gray-700 font-bold text-xs hub-num" v-text="(contributorPagination.page - 1) * contributorPagination.page_size + index + 1"></span>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap">
+                                    <td class="px-3 py-2.5 whitespace-nowrap">
                                         <div class="flex items-center">
                                             <img v-if="contributor.user_avatar" :src="contributor.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
-                                            <div v-else class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs mr-2" v-text="(contributor.nickname || contributor.user_id || '').substring(0, 1)"></div>
+                                            <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-xs mr-2" v-text="(contributor.nickname || contributor.user_id || '').substring(0, 1)"></div>
                                             <div class="min-w-0 flex items-center gap-1">
                                                 <div class="text-sm font-medium text-gray-900 truncate clickable-user"
                                                      @click="openUserMessagesModal(contributor.user_id, contributor.nickname || contributor.user_id, { live_id: contributor.live_id })"
@@ -615,10 +578,10 @@
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(contributor.gift_count)"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(contributor.chat_count)"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-red-500 text-right" v-text="formatNumber(contributor.like_count || 0)"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm font-bold text-yellow-600 text-right" v-text="formatNumber(contributor.contribution_value)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-600 text-right hub-num" v-text="formatNumber(contributor.gift_count)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-600 text-right hub-num" v-text="formatNumber(contributor.chat_count)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-600 text-right hub-num" v-text="formatNumber(contributor.like_count || 0)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm font-bold text-yellow-700 text-right hub-num" v-text="formatNumber(contributor.contribution_value)"></td>
                                 </tr>
                             </tbody>
                             </template>
@@ -629,28 +592,28 @@
                                         <p v-text="likersLoading ? '加载中...' : '暂无累积点赞数据'"></p>
                                     </td>
                                 </tr>
-                                <tr v-for="(liker, index) in likers" :key="'like-' + liker.live_id + '-' + liker.user_id" class="hover:bg-red-50 transition-colors">
-                                    <td class="px-3 py-2 whitespace-nowrap">
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 font-bold text-xs" v-text="index + 1"></span>
+                                <tr v-for="(liker, index) in likers" :key="'like-' + liker.live_id + '-' + liker.user_id" class="hover:bg-gray-50 transition-colors">
+                                    <td class="px-3 py-2.5 whitespace-nowrap">
+                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-gray-100 text-gray-700 font-bold text-xs hub-num" v-text="index + 1"></span>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap">
+                                    <td class="px-3 py-2.5 whitespace-nowrap">
                                         <div class="flex items-center">
                                             <img v-if="liker.user_avatar" :src="liker.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
-                                            <div v-else class="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold mr-2"
+                                            <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xs font-bold mr-2"
                                                  v-text="(liker.user_name || liker.user_id || 'U').substring(0, 1)"></div>
                                             <span class="text-sm font-medium text-gray-900 truncate clickable-user"
                                                   @click="openLikerMessages(liker)"
                                                   v-text="liker.user_name || liker.user_id"></span>
                                         </div>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-500" v-text="liker.anchor_name || liker.live_id"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(liker.gift_count)"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-right">
-                                        <span class="font-bold text-red-500" v-text="formatNumber(liker.like_count)"></span>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-500" v-text="liker.anchor_name || liker.live_id"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-600 text-right hub-num" v-text="formatNumber(liker.gift_count)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-right">
+                                        <span class="font-bold text-red-600 hub-num" v-text="formatNumber(liker.like_count)"></span>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-right">
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-right">
                                         <img v-if="liker.fans_club_level" :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'" style="height: 18px; object-fit: contain; display: inline-block;">
-                                        <span v-else class="text-gray-400 text-xs italic">-</span>
+                                        <span v-else class="text-gray-400 text-xs">-</span>
                                     </td>
                                 </tr>
                             </tbody>
@@ -659,14 +622,14 @@
                     </div>
 
                     <div v-if="activeRankTab === 'gift' && contributorPagination.total_pages > 1" class="px-4 py-3 border-t flex items-center justify-between bg-gray-50">
-                        <div class="text-xs text-gray-500">
+                        <div class="text-xs text-gray-500 hub-num">
                             第 <span class="font-medium" v-text="contributorPagination.page"></span> / <span v-text="contributorPagination.total_pages"></span> 页
                         </div>
                         <div class="flex items-center gap-1">
                             <button
                                 @click="goToContributorPage(contributorPagination.page - 1)"
                                 :disabled="contributorPagination.page <= 1"
-                                :class="['px-2 py-1 rounded text-xs', contributorPagination.page <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gray-200 text-gray-700 hover:bg-gray-300']">
+                                :class="['px-2 py-1 rounded text-xs border', contributorPagination.page <= 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100']">
                                 上一页
                             </button>
                             <template v-for="p in getContributorPageNumbers()">
@@ -674,14 +637,14 @@
                                 <button
                                     v-else
                                     @click="goToContributorPage(p)"
-                                    :class="['w-6 h-6 rounded text-xs', contributorPagination.page === p ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300']"
+                                    :class="['w-6 h-6 rounded text-xs hub-num', contributorPagination.page === p ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100']"
                                     v-text="p">
                                 </button>
                             </template>
                             <button
                                 @click="goToContributorPage(contributorPagination.page + 1)"
                                 :disabled="contributorPagination.page >= contributorPagination.total_pages"
-                                :class="['px-2 py-1 rounded text-xs', contributorPagination.page >= contributorPagination.total_pages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gray-200 text-gray-700 hover:bg-gray-300']">
+                                :class="['px-2 py-1 rounded text-xs border', contributorPagination.page >= contributorPagination.total_pages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100']">
                                 下一页
                             </button>
                         </div>
@@ -689,12 +652,9 @@
                 </div>
 
                 <div v-if="selectedRoomId" class="xl:col-span-5 table-panel overflow-hidden">
-                    <div class="table-panel-header px-4 py-3 border-b flex justify-between items-center">
-                        <div>
-                            <h2 class="text-base font-bold text-gray-800">直播场次</h2>
-                            <div class="text-xs text-gray-400 mt-1">当前房间的开播记录</div>
-                        </div>
-                        <span class="text-xs text-gray-500">共 {{ sessions.length }} 场</span>
+                    <div class="table-panel-header px-4 py-3 border-b border-gray-100 flex justify-between items-center">
+                        <h2 class="text-sm font-bold text-gray-900">直播场次</h2>
+                        <span class="text-xs text-gray-500 hub-num">共 {{ sessions.length }} 场</span>
                     </div>
 
                     <div class="dashboard-table">
@@ -712,21 +672,21 @@
                                 <tr v-if="sessions.length === 0">
                                     <td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">暂无数据</td>
                                 </tr>
-                                <tr v-for="session in sessions" :key="session.id" class="hover:bg-blue-50 transition-colors">
-                                    <td class="px-3 py-2 whitespace-nowrap">
-                                        <div class="text-xs text-gray-900" v-text="formatDateTime(session.start_time)"></div>
+                                <tr v-for="session in sessions" :key="session.id" class="hover:bg-gray-50 transition-colors">
+                                    <td class="px-3 py-2.5 whitespace-nowrap">
+                                        <div class="text-xs text-gray-900 hub-num" v-text="formatDateTime(session.start_time)"></div>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap">
-                                        <span :class="['px-2 py-0.5 text-xs rounded-full', getSessionStatusClass(session.status)]">
+                                    <td class="px-3 py-2.5 whitespace-nowrap">
+                                        <span :class="['px-2 py-0.5 text-xs rounded-md', getSessionStatusClass(session.status)]">
                                             <span v-text="getSessionStatusText(session.status)"></span>
                                         </span>
                                     </td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-yellow-600 text-right font-medium" v-text="formatIncome(session.total_income)"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-600 text-right" v-text="formatNumber(session.peak_viewer_count)"></td>
-                                    <td class="px-3 py-2 whitespace-nowrap text-center">
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-yellow-700 text-right font-semibold hub-num" v-text="formatIncome(session.total_income)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-600 text-right hub-num" v-text="formatNumber(session.peak_viewer_count)"></td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-center">
                                         <button
                                             @click="viewSessionDetail(session)"
-                                            class="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600">
+                                            class="hub-row-primary">
                                             详情
                                         </button>
                                     </td>
@@ -738,11 +698,10 @@
 
                 <div v-else class="xl:col-span-5 empty-panel p-8 text-center">
                     <div>
-                        <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 7V3m8 4V3M5 11h14M6 21h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        <svg class="w-10 h-10 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M8 7V3m8 4V3M5 11h14M6 21h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                         </svg>
-                        <p class="text-gray-600 font-medium">选择单个房间后查看场次</p>
-                        <p class="text-gray-400 text-sm mt-2">全部房间模式保留总览、趋势和用户排行</p>
+                        <p class="text-gray-700 text-sm font-medium">选择单个房间后展示场次明细</p>
                     </div>
                 </div>
             </section>
@@ -750,11 +709,10 @@
 
         <div v-else class="empty-panel p-12 text-center">
             <div>
-                <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8v-7"/>
+                <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8v-7"/>
                 </svg>
-                <p class="text-gray-600 text-lg font-semibold mb-2" v-text="loading ? '正在加载统计数据...' : '选择范围后查看统计'"></p>
-                <p class="text-gray-400 text-sm">切换房间或统计周期将自动刷新总览、趋势与明细</p>
+                <p class="text-gray-700 text-base font-semibold" v-text="loading ? '正在加载统计数据...' : '选择统计范围'"></p>
             </div>
         </div>
         {% endraw %}
@@ -1014,7 +972,7 @@
                             <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-2xl font-bold mr-4"
                                  v-text="(userMessagesData.user.nickname || userMessagesData.user.user_id || 'U').substring(0, 1)"></div>
                             <div>
-                                <h2 class="text-xl font-bold flex items-center">
+                                <h2 class="text-xl font-bold text-gray-900 flex items-center">
                                     <span v-text="userMessagesData.user.nickname || userMessagesData.user.user_id"></span>
                                     <img v-if="userMessagesData.user.level"
                                          :src="'/level_img/level_' + userMessagesData.user.level + '.png'"
@@ -1025,12 +983,12 @@
                                 </h2>
                             </div>
                         </div>
-                        <button @click="closeUserMessagesModal" class="user-modal-close-btn text-white text-opacity-80 hover:text-opacity-100 text-3xl leading-none">&times;</button>
+                        <button @click="closeUserMessagesModal" class="user-modal-close-btn text-gray-400 hover:text-gray-700 text-3xl leading-none">&times;</button>
                     </div>
 
                     <!-- 用户额外信息 -->
                     <div v-if="userMessagesData.user.gender || userMessagesData.user.follower_count || userMessagesData.user.following_count || userMessagesData.user.age_range"
-                         class="mt-3 text-sm text-white text-opacity-90">
+                         class="mt-2.5 text-xs text-gray-500 hub-num">
                         <div class="flex items-center gap-3 mb-1">
                             <span v-if="userMessagesData.user.gender">
                                 <span v-text="userMessagesData.user.gender === 1 ? '♂' : userMessagesData.user.gender === 2 ? '♀' : ''"></span>
@@ -1038,11 +996,11 @@
                             <span v-if="userMessagesData.user.age_range" v-text="formatAgeRange(userMessagesData.user.age_range)"></span>
                         </div>
                         <div v-if="userMessagesData.user.following_count || userMessagesData.user.follower_count" class="flex items-center gap-1">
-                            <span class="font-bold" v-text="formatNumber(userMessagesData.user.following_count || 0)"></span>
-                            <span class="text-white text-opacity-70">关注</span>
-                            <span class="text-white text-opacity-50 mx-1">·</span>
-                            <span class="font-bold" v-text="formatNumber(userMessagesData.user.follower_count || 0)"></span>
-                            <span class="text-white text-opacity-70">粉丝</span>
+                            <span class="font-semibold text-gray-900" v-text="formatNumber(userMessagesData.user.following_count || 0)"></span>
+                            <span>关注</span>
+                            <span class="text-gray-300 mx-1">·</span>
+                            <span class="font-semibold text-gray-900" v-text="formatNumber(userMessagesData.user.follower_count || 0)"></span>
+                            <span>粉丝</span>
                         </div>
                     </div>
 

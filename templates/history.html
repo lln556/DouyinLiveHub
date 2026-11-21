@@ -44,51 +44,48 @@
             </div>
         </nav>
 
-        <main class="hub-container">
-            <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-900">归档管理</h1>
-                    <p class="text-sm text-gray-500 mt-1">已归档直播间保留全部历史场次、弹幕与礼物，可一键查看统计或恢复至控制台。</p>
-                </div>
+        <main class="hub-container space-y-5">
+            <header class="flex items-center justify-between gap-3">
+                <h1 class="text-xl font-bold text-gray-900">归档管理</h1>
                 <button
                     @click="loadArchivedRooms"
                     :disabled="loading"
-                    class="hub-btn hub-btn-primary self-start sm:self-auto">
+                    class="hub-btn hub-btn-secondary">
                     <span v-text="loading ? '刷新中...' : '刷新列表'"></span>
                 </button>
             </header>
 
-            <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div class="hub-stat-card">
-                    <div class="text-2xl font-bold text-blue-600" v-text="formatNumber(summary.totalRooms)"></div>
-                    <div class="text-xs font-medium text-gray-500 mt-1">归档房间</div>
+            <section class="hub-data-strip grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+                <div class="hub-data-cell">
+                    <div class="text-xs font-medium text-gray-500">归档房间</div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(summary.totalRooms)"></div>
                 </div>
-                <div class="hub-stat-card">
-                    <div class="text-2xl font-bold text-green-600" v-text="formatNumber(summary.totalSessions)"></div>
-                    <div class="text-xs font-medium text-gray-500 mt-1">历史场次</div>
+                <div class="hub-data-cell">
+                    <div class="text-xs font-medium text-gray-500">历史场次</div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(summary.totalSessions)"></div>
                 </div>
-                <div class="hub-stat-card">
-                    <div class="text-2xl font-bold text-yellow-600" v-text="formatNumber(summary.totalIncome)"></div>
-                    <div class="text-xs font-medium text-gray-500 mt-1">总收入（钻石）</div>
+                <div class="hub-data-cell">
+                    <div class="text-xs font-medium text-gray-500">累计收入</div>
+                    <div class="text-xl font-bold text-yellow-700 hub-num mt-1" v-text="formatNumber(summary.totalIncome) + ' 钻'"></div>
                 </div>
-                <div class="hub-stat-card">
-                    <div class="text-2xl font-bold text-indigo-600" v-text="formatNumber(summary.totalMessages)"></div>
-                    <div class="text-xs font-medium text-gray-500 mt-1">弹幕总数</div>
+                <div class="hub-data-cell">
+                    <div class="text-xs font-medium text-gray-500">弹幕总数</div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(summary.totalMessages)"></div>
                 </div>
             </section>
 
             <section class="hub-card overflow-hidden">
-                <div class="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="px-5 py-3.5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div class="flex items-center gap-2">
-                        <h2 class="text-lg font-bold text-gray-900">已归档直播间</h2>
-                        <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600" v-text="filteredRooms.length + ' 个'"></span>
+                        <h2 class="text-base font-bold text-gray-900">已归档房间</h2>
+                        <span class="px-2 py-0.5 rounded-md text-xs font-semibold bg-gray-100 text-gray-600 hub-num" v-text="filteredRooms.length"></span>
                     </div>
                     <div class="relative w-full sm:w-72">
                         <input
                             v-model.trim="searchKeyword"
                             type="text"
                             placeholder="搜索主播名称或房间 ID..."
-                            class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                            class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200">
                         <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
                         </svg>
@@ -129,39 +126,41 @@
                             <tr v-for="room in filteredRooms" :key="room.live_id" class="table-row">
                                 <td class="px-5 py-3.5 whitespace-nowrap">
                                     <a :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
-                                       class="font-semibold text-gray-900 hover:text-blue-600 block"
+                                       class="font-semibold text-gray-900 hover:text-blue-600 block text-sm"
                                        v-text="room.anchor_name || room.live_id"></a>
-                                    <div class="text-xs text-gray-400 font-mono" v-text="room.live_id"></div>
+                                    <div class="text-xs text-gray-400 font-mono mt-0.5" v-text="room.live_id"></div>
                                 </td>
-                                <td class="px-4 py-3.5 whitespace-nowrap text-xs text-gray-600" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></td>
-                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_sessions)"></td>
-                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm font-semibold text-yellow-600" v-text="formatNumber(room.total_income)"></td>
-                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_chat_count)"></td>
-                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_gift_count)"></td>
-                                <td class="px-4 py-3.5 whitespace-nowrap text-xs text-gray-500" v-text="formatDateTime(room.archived_at)"></td>
-                                <td class="px-5 py-3.5 whitespace-nowrap text-right text-sm space-x-2">
-                                    <a
-                                        :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
-                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-semibold">
-                                        查看统计
-                                    </a>
-                                    <button
-                                        @click="goToRoom(room.live_id)"
-                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-gray-50 text-gray-700 hover:bg-gray-100 text-xs font-medium">
-                                        房间页
-                                    </button>
-                                    <button
-                                        @click="restoreRoom(room)"
-                                        :disabled="isRoomBusy(room.live_id)"
-                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-green-50 text-green-700 hover:bg-green-100 text-xs font-semibold disabled:opacity-50">
-                                        恢复
-                                    </button>
-                                    <button
-                                        @click="hardDeleteRoom(room)"
-                                        :disabled="isRoomBusy(room.live_id)"
-                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold disabled:opacity-50">
-                                        永久删除
-                                    </button>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-xs text-gray-500 hub-num" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700 hub-num" v-text="formatNumber(room.total_sessions)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm font-semibold text-yellow-700 hub-num" v-text="formatNumber(room.total_income)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700 hub-num" v-text="formatNumber(room.total_chat_count)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700 hub-num" v-text="formatNumber(room.total_gift_count)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-xs text-gray-500 hub-num" v-text="formatDateTime(room.archived_at)"></td>
+                                <td class="px-5 py-3.5 whitespace-nowrap text-right text-sm">
+                                    <div class="inline-flex items-center justify-end gap-1">
+                                        <a
+                                            :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
+                                            class="hub-row-primary">
+                                            查看统计
+                                        </a>
+                                        <button
+                                            @click="goToRoom(room.live_id)"
+                                            class="hub-row-ghost">
+                                            房间页
+                                        </button>
+                                        <button
+                                            @click="restoreRoom(room)"
+                                            :disabled="isRoomBusy(room.live_id)"
+                                            class="hub-row-ghost is-live">
+                                            恢复
+                                        </button>
+                                        <button
+                                            @click="hardDeleteRoom(room)"
+                                            :disabled="isRoomBusy(room.live_id)"
+                                            class="hub-row-ghost is-danger">
+                                            永久删除
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
@@ -181,32 +180,32 @@
                                    v-text="room.anchor_name || room.live_id"></a>
                                 <div class="text-xs text-gray-400 font-mono truncate" v-text="room.live_id"></div>
                             </div>
-                            <span class="text-xs text-gray-400 flex-shrink-0" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></span>
+                            <span class="text-xs text-gray-400 flex-shrink-0 hub-num" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></span>
                         </div>
                         <div class="grid grid-cols-4 gap-2 text-center bg-gray-50 rounded-lg p-2.5 text-xs">
                             <div>
                                 <div class="text-gray-400">场次</div>
-                                <div class="font-bold text-gray-800 mt-0.5" v-text="formatNumber(room.total_sessions)"></div>
+                                <div class="font-bold text-gray-800 hub-num mt-0.5" v-text="formatNumber(room.total_sessions)"></div>
                             </div>
                             <div>
                                 <div class="text-gray-400">收入</div>
-                                <div class="font-bold text-yellow-600 mt-0.5" v-text="formatNumber(room.total_income)"></div>
+                                <div class="font-bold text-yellow-700 hub-num mt-0.5" v-text="formatNumber(room.total_income)"></div>
                             </div>
                             <div>
                                 <div class="text-gray-400">弹幕</div>
-                                <div class="font-bold text-gray-800 mt-0.5" v-text="formatNumber(room.total_chat_count)"></div>
+                                <div class="font-bold text-gray-800 hub-num mt-0.5" v-text="formatNumber(room.total_chat_count)"></div>
                             </div>
                             <div>
                                 <div class="text-gray-400">礼物</div>
-                                <div class="font-bold text-gray-800 mt-0.5" v-text="formatNumber(room.total_gift_count)"></div>
+                                <div class="font-bold text-gray-800 hub-num mt-0.5" v-text="formatNumber(room.total_gift_count)"></div>
                             </div>
                         </div>
                         <div class="grid grid-cols-4 gap-2">
                             <a :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
-                               class="text-center py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold">查看统计</a>
+                               class="text-center py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">查看统计</a>
                             <button @click="goToRoom(room.live_id)" class="py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold">房间页</button>
-                            <button @click="restoreRoom(room)" :disabled="isRoomBusy(room.live_id)" class="py-2 rounded-lg bg-green-50 text-green-700 text-xs font-semibold">恢复</button>
-                            <button @click="hardDeleteRoom(room)" :disabled="isRoomBusy(room.live_id)" class="py-2 rounded-lg bg-red-50 text-red-600 text-xs font-semibold">删除</button>
+                            <button @click="restoreRoom(room)" :disabled="isRoomBusy(room.live_id)" class="py-2 rounded-lg border border-gray-200 text-green-700 text-xs font-semibold">恢复</button>
+                            <button @click="hardDeleteRoom(room)" :disabled="isRoomBusy(room.live_id)" class="py-2 rounded-lg border border-red-200 text-red-600 text-xs font-semibold">删除</button>
                         </div>
                     </article>
                 </div>

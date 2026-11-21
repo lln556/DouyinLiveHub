@@ -10,6 +10,11 @@ from services.room_manager import MonitoredRoom
 from ws_handlers.handlers import WebDouyinLiveFetcher
 
 
+@pytest.fixture(autouse=True)
+def clean_db():
+    """每个 context 自建 SQLite 内存库，不执行 MySQL 清库语句。"""
+
+
 def user(user_id='stable-id', name='viewer'):
     return SimpleNamespace(
         id=123, id_str=user_id, nick_name=name,
@@ -355,3 +360,181 @@ def test_contribution_failure_cannot_skip_saved_gift_session_accounting(context)
     # Replay remains harmless despite the contribution write failure.
     fetcher._handle_gift_message(gift(trace='contribution-write-error', count=3))
     assert saved_session(svc, session.id).total_income == 7.5
+
+
+@pytest.mark.parametrize('name,expected', [
+    ('至尊超跑', 12000), ('无界超跑', 36000), ('烈焰跑车', 6000),
+    ('落日追光', 6000), ('闪烁星河', 99), ('点点星光', 9),
+])
+@pytest.mark.parametrize('base', [1, 1200])
+def test_special_gift_prices_account_real_value(context, monkeypatch, name, expected, base):
+    monkeypatch.delenv('GIFT_PRICE_OVERRIDES', raising=False)
+    svc, session, room, socket, fetcher = context
+    fetcher._handle_gift_message(gift(name=name, price=base, count=2))
+    assert saved_session(svc, session.id).total_income == expected * 2
+    assert svc.get_user_contribution('room', 'stable-id').total_score == expected * 2
+    assert room.stats['total_income'] == expected * 2
+    assert messages(socket)[0]['gift_price'] == expected
+
+
+def test_environment_price_override_updates_without_module_reload(context, monkeypatch):
+    svc, session, _, socket, fetcher = context
+    monkeypatch.setenv('GIFT_PRICE_OVERRIDES', '{"至尊超跑":12345}')
+    fetcher._handle_gift_message(gift(trace='override-one', name='至尊超跑', price=1200))
+    monkeypatch.setenv('GIFT_PRICE_OVERRIDES', '{"至尊超跑":0}')
+    fetcher._handle_gift_message(gift(trace='override-two', name=' 至尊超跑 ', price=1200))
+    assert saved_session(svc, session.id).total_income == 12345
+    assert [payload['gift_price'] for payload in messages(socket)] == [12345, 0]
+
+
+def test_module_price_override_is_read_dynamically(context, monkeypatch):
+    import config
+
+    monkeypatch.delenv('GIFT_PRICE_OVERRIDES', raising=False)
+    monkeypatch.setattr(config, 'GIFT_PRICE_OVERRIDES', {'heart': 12}, raising=False)
+    svc, session, _, _, fetcher = context
+    fetcher._handle_gift_message(gift())
+    assert saved_session(svc, session.id).total_income == 12
+
+
+def test_buff_level_resolves_dynamic_price_without_name_override(context):
+    svc, session, _, socket, fetcher = context
+    msg = gift(name='未来进阶礼物', price=1200, count=2)
+    msg.tray_info = SimpleNamespace(buff_level=2)
+    msg.gift.gift_buff_infos = [
+        SimpleNamespace(buff_level=1, buff_diamond_count=5000),
+        SimpleNamespace(buff_level=2, buff_diamond_count=0),
+        SimpleNamespace(buff_level=2, buff_diamond_count=28888),
+    ]
+    msg.diy_item_info = '{"real_diamond_count":99999}'
+    fetcher._handle_gift_message(msg)
+    assert saved_session(svc, session.id).total_income == 57776
+    assert messages(socket)[0]['gift_price'] == 28888
+
+
+@pytest.mark.parametrize('blob,expected', [
+    ('{"buff_diamond_count":30,"real_diamond_count":40}', 30),
+    ('{"real_diamond_count":31}', 31), ('{"total_diamond_count":32}', 32),
+    ('{"diamond_count":33}', 33), ('{"data":{"buff_diamond_count":34}}', 34),
+    ('{"gift":{"real_diamond_count":35}}', 35),
+    ('{"diamond_count":1}', 2.5), ('{"diamond_count":"36"}', 2.5),
+    ('{"diamond_count":true}', 2.5), ('{"diamond_count":Infinity}', 2.5),
+    ('{bad', 2.5), ('[]', 2.5),
+])
+@pytest.mark.parametrize('field', ['diy_item_info', 'interact_gift_info', 'gift_play_param'])
+def test_extra_json_gift_price_sources(context, field, blob, expected):
+    svc, session, _, socket, fetcher = context
+    msg = gift()
+    setattr(msg, field, blob)
+    fetcher._handle_gift_message(msg)
+    assert saved_session(svc, session.id).total_income == expected
+    assert messages(socket)[0]['gift_price'] == expected
+
+
+def series_gift(trace='box-trace', msg_id=90, count=1):
+    msg = gift(trace=trace, msg_id=msg_id, name='AI礼物盒子', price=99, count=count)
+    msg.series_gift_data = [
+        SimpleNamespace(gift_struct=SimpleNamespace(id=91, name='璀璨礼物', diamond_count=1),
+                        diy_item_info='{"real_diamond_count":28888}'),
+        SimpleNamespace(gift_struct=SimpleNamespace(id=92, name='闪烁星河', diamond_count=1),
+                        diy_item_info=''),
+    ]
+    return msg
+
+
+@pytest.mark.parametrize('trace,msg_id', [('box-trace', 90), ('', 91)])
+@pytest.mark.parametrize('count,repeat,expected_count', [(1, 0, 1), (2, 0, 2), (0, 3, 3), (0, 0, 1)])
+def test_series_box_accounts_only_children_and_dedupes_after_restart(
+        context, trace, msg_id, count, repeat, expected_count):
+    svc, session, room, socket, fetcher = context
+    msg = series_gift(trace=trace, msg_id=msg_id, count=count)
+    msg.repeat_count = repeat
+    fetcher._handle_gift_message(msg)
+    fetcher._handle_gift_message(msg)
+    second = reconnect(context)
+    second._handle_gift_message(msg)
+    room.trace_dedupe_set.clear()  # 模拟进程重启，仅数据库唯一 trace 仍在。
+    room.trace_dedupe.clear()
+    second._handle_gift_message(msg)
+    assert saved_session(svc, session.id).total_income == 28987 * expected_count
+    assert saved_session(svc, session.id).total_gift_count == 2 * expected_count
+    assert svc.get_user_contribution('room', 'stable-id').total_score == 28987 * expected_count
+    assert room.gift_user_ids == {'stable-id'}
+    payloads = messages(socket)
+    assert [payload['gift_name'] for payload in payloads] == ['AI礼物盒子(璀璨礼物)', 'AI礼物盒子(闪烁星河)']
+    assert all('content' not in payload and payload['is_combo'] is False for payload in payloads)
+    with svc.get_session() as db:
+        rows = db.query(StoredGift).order_by(StoredGift.id).all()
+        prefix = trace or f'msg:room:{session.id}:{msg_id}'
+        assert [row.trace_id for row in rows] == [f'{prefix}:series:0', f'{prefix}:series:1']
+        assert [row.gift_id for row in rows] == ['91', '92']
+
+
+def test_series_box_failed_save_is_retryable_and_does_not_account_outer(context):
+    svc, session, room, socket, fetcher = context
+    msg = series_gift()
+    with patch.object(svc, 'save_gift_message', return_value=None):
+        fetcher._handle_gift_message(msg)
+    assert saved_session(svc, session.id).total_income == 0
+    assert not room.trace_dedupe_set
+    assert not messages(socket)
+    fetcher._handle_gift_message(msg)
+    assert saved_session(svc, session.id).total_income == 28987
+
+
+@pytest.mark.parametrize('failed_index', [0, 1])
+def test_series_partial_save_can_retry_missing_child(context, failed_index):
+    svc, session, _, socket, fetcher = context
+    msg = series_gift()
+    original = svc.save_gift_message
+
+    def saving(*args, **kwargs):
+        if kwargs.get('trace_id') == f'box-trace:series:{failed_index}':
+            return None
+        return original(*args, **kwargs)
+
+    with patch.object(svc, 'save_gift_message', side_effect=saving):
+        fetcher._handle_gift_message(msg)
+    fetcher._handle_gift_message(msg)
+    fetcher._handle_gift_message(msg)
+    assert saved_session(svc, session.id).total_income == 28987
+    assert svc.get_user_contribution('room', 'stable-id').total_score == 28987
+    assert len(messages(socket)) == 2
+
+
+@pytest.mark.parametrize('inner_msg_id', [0, 100])
+def test_binding_gift_ws_dispatch_preserves_message_id_and_dedupes(context, inner_msg_id):
+    from protobuf import douyin as protocol
+
+    assert hasattr(protocol, 'BindingGiftMessage')
+    svc, session, room, socket, fetcher = context
+    binding = protocol.BindingGiftMessage(
+        common=protocol.Common(msg_id=101),
+        msg=protocol.GiftMessage(common=protocol.Common(msg_id=inner_msg_id),
+                                 user=protocol.User(id=123, id_str='stable-id', nick_name='viewer'),
+                                 gift_id=8, gift=protocol.GiftStruct(name='至尊超跑', diamond_count=1200),
+                                 group_count=2),
+    )
+    response = protocol.Response(messages_list=[protocol.Message(
+        method='WebcastBindingGiftMessage', payload=bytes(binding))])
+    packet = bytes(protocol.PushFrame(payload=bytes(response)))
+    fetcher._wsOnMessage(MagicMock(), packet)
+    second = reconnect(context)
+    second._wsOnMessage(MagicMock(), packet)
+    room.trace_dedupe_set.clear()
+    room.trace_dedupe.clear()
+    second._wsOnMessage(MagicMock(), packet)
+    assert saved_session(svc, session.id).total_income == 24000
+    assert svc.get_user_contribution('room', 'stable-id').total_score == 24000
+    assert len(messages(socket)) == 1
+    with svc.get_session() as db:
+        assert db.query(StoredGift).one().trace_id == f'msg:room:{session.id}:{inner_msg_id or 101}'
+
+
+def test_empty_binding_gift_does_not_account(context):
+    _, _, _, socket, fetcher = context
+    handler = getattr(fetcher, '_handle_binding_gift_message', None)
+    assert callable(handler), 'binding gift handler is missing'
+    handler(SimpleNamespace(msg=None))
+    handler(SimpleNamespace(msg=SimpleNamespace(gift=SimpleNamespace(name=''), gift_id=0)))
+    assert not messages(socket)

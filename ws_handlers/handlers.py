@@ -2,6 +2,9 @@
 WebSocket处理器
 扩展核心抓取类，添加数据库存储和Socket.IO推送
 """
+import json
+import math
+import os
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -12,7 +15,7 @@ if TYPE_CHECKING:
     from services.room_manager import MonitoredRoom
 
 from crawler.fetcher import decompress_push_frame_payload
-from protobuf.douyin import PushFrame, Response, ChatMessage, GiftMessage, LikeMessage, RoomUserSeqMessage, ControlMessage
+from protobuf.douyin import BindingGiftMessage, PushFrame, Response, ChatMessage, GiftMessage, LikeMessage, RoomUserSeqMessage, ControlMessage
 from utils.logger import get_logger
 import config
 
@@ -203,6 +206,8 @@ class WebDouyinLiveFetcher:
                             self._handle_chat_message(ChatMessage().parse(msg.payload))
                         elif method == 'WebcastGiftMessage':
                             self._handle_gift_message(GiftMessage().parse(msg.payload))
+                        elif method == 'WebcastBindingGiftMessage':
+                            self._handle_binding_gift_message(BindingGiftMessage().parse(msg.payload))
                         elif method == 'WebcastLikeMessage':
                             self._handle_like_message(LikeMessage().parse(msg.payload))
                         elif method == 'WebcastRoomUserSeqMessage':
@@ -274,12 +279,69 @@ class WebDouyinLiveFetcher:
             for key in expired:
                 del self.monitored_room.combo_gifts[key]
 
+    def _handle_binding_gift_message(self, binding_msg):
+        """绑定消息沿用礼物记账入口，缺失的内部消息 ID 从外层补齐。"""
+        inner = getattr(binding_msg, 'msg', None)
+        if inner is None or not (getattr(getattr(inner, 'gift', None), 'name', '')
+                                 or getattr(inner, 'gift_id', 0)):
+            return
+        outer_common = getattr(binding_msg, 'common', None)
+        if (not getattr(getattr(inner, 'common', None), 'msg_id', 0)
+                and getattr(outer_common, 'msg_id', 0)):
+            inner.common = outer_common
+        self._handle_gift_message(inner)
+
+    @staticmethod
+    def _resolve_gift_unit_price(gift_struct, tray_info=None, extra_json_blobs=()) -> float:
+        """按配置、进阶等级、扩展 JSON、基础钻石数的顺序解析单价。"""
+        gift_name = (getattr(gift_struct, 'name', '') or '').strip()
+        # 支持测试和运行进程热更新环境配置，无需重新导入 config 模块。
+        raw_overrides = os.getenv('GIFT_PRICE_OVERRIDES', '')
+        overrides = (config.parse_gift_price_overrides(raw_overrides) if raw_overrides.strip()
+                     else config.GIFT_PRICE_OVERRIDES)
+        if gift_name in overrides:
+            return float(overrides[gift_name])
+        base_diamond = float(getattr(gift_struct, 'diamond_count', 0) or 0)
+        buff_level = int(getattr(tray_info, 'buff_level', 0) or 0)
+        if buff_level > 0:
+            for buff in getattr(gift_struct, 'gift_buff_infos', None) or []:
+                price = getattr(buff, 'buff_diamond_count', 0) or 0
+                if getattr(buff, 'buff_level', 0) == buff_level and price > 0:
+                    return float(price)
+        price_keys = ('buff_diamond_count', 'real_diamond_count', 'total_diamond_count', 'diamond_count')
+        for blob in extra_json_blobs:
+            if not isinstance(blob, str) or not blob.strip():
+                continue
+            try:
+                extra = json.loads(blob)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(extra, dict):
+                continue
+            for key in price_keys:
+                for candidate in (extra, extra.get('data'), extra.get('gift')):
+                    if not isinstance(candidate, dict):
+                        continue
+                    value = candidate.get(key)
+                    if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                            and value > base_diamond and math.isfinite(value)):
+                        return float(value)
+        return base_diamond
+
     def _handle_gift_message(self, gift_msg):
         """每个成功落库的礼物增量只记账一次，重连续用房间级缓存。"""
         self.last_gift_time = time.time()
         fields = self._message_user_fields(gift_msg.user)
-        gift_name = gift_msg.gift.name
-        gift_price = {'闪烁星河': 99, '点点星光': 9}.get(gift_name, gift_msg.gift.diamond_count)
+        outer_name = getattr(getattr(gift_msg, 'gift', None), 'name', '') or ''
+        series_items = [s for s in (getattr(gift_msg, 'series_gift_data', None) or [])
+                        if getattr(getattr(s, 'gift_struct', None), 'name', '')]
+        gift_name = outer_name
+        gift_price = self._resolve_gift_unit_price(
+            gift_msg.gift, tray_info=getattr(gift_msg, 'tray_info', None),
+            extra_json_blobs=(getattr(gift_msg, 'diy_item_info', ''),
+                              getattr(gift_msg, 'interact_gift_info', ''),
+                              getattr(gift_msg, 'gift_play_param', '')),
+        ) if not series_items else 0
         gift_id = str(getattr(gift_msg, 'gift_id', '') or '')
         group_id = str(gift_msg.group_id) if getattr(gift_msg, 'group_id', 0) else None
         if group_id == '0':
@@ -298,6 +360,73 @@ class WebDouyinLiveFetcher:
         avatar_urls = getattr(getattr(gift_msg.user, 'avatar_thumb', None), 'url_list_list', None)
         avatar = avatar_urls[0] if avatar_urls else None
         data_service = self.monitored_room.manager.data_service
+
+        if series_items:
+            payloads = []
+            item_count = max(1, int(per_combo_count))
+            with self.monitored_room.data_lock:
+                if dedupe_key and dedupe_key in self.monitored_room.trace_dedupe_set:
+                    return
+                completed = True
+                for idx, s_item in enumerate(series_items):
+                    item_trace = f'{persisted_key}:series:{idx}' if persisted_key else None
+                    item_dedupe_key = f'trace:{item_trace}' if item_trace else None
+                    if item_dedupe_key and item_dedupe_key in self.monitored_room.trace_dedupe_set:
+                        continue
+                    inner_struct = s_item.gift_struct
+                    inner_name = inner_struct.name
+                    display_name = (f'{outer_name}({inner_name})'
+                                    if outer_name and outer_name != inner_name else inner_name)
+                    item_price = self._resolve_gift_unit_price(
+                        inner_struct, tray_info=None,
+                        extra_json_blobs=(getattr(s_item, 'diy_item_info', ''),
+                                          getattr(gift_msg, 'interact_gift_info', ''),
+                                          getattr(gift_msg, 'gift_play_param', '')),
+                    )
+                    item_value = item_price * item_count
+                    saved = data_service.save_gift_message(
+                        self.live_id, live_session_id=self.current_session_id, anchor_name=self.anchor_name,
+                        user_id=fields['user_id'], user_name=fields['user'], user_level=fields['user_level'],
+                        gift_id=str(getattr(inner_struct, 'id', 0) or ''), gift_name=display_name,
+                        gift_count=item_count, gift_price=item_price, total_value=item_value,
+                        send_type='normal', group_id=group_id, trace_id=item_trace,
+                        fans_club_level=fields['fans_club_level'],
+                    )
+                    if saved is None:
+                        completed = False
+                        continue
+                    if item_dedupe_key:
+                        self.monitored_room.remember_trace(item_dedupe_key)
+                    self.total_income = float(self.monitored_room.stats.get('total_income') or 0) + item_value
+                    self.monitored_room.stats['total_income'] = self.total_income
+                    self.monitored_room.gift_user_ids.add(fields['user_id'])
+                    self.monitored_room.stats['contributor_count'] = len(self.monitored_room.gift_user_ids)
+                    try:
+                        self.monitored_room.update_contribution(
+                            fields['user_id'], fields['user'], gift_value=item_value,
+                            gift_count=item_count, user_avatar=avatar,
+                            **{key: fields[key] for key in ('user_level', 'fans_club_level', 'gender',
+                                                           'follower_count', 'following_count', 'age_range')},
+                        )
+                    except Exception:
+                        self.log.error("礼物明细已保存，贡献统计写入失败")
+                    finally:
+                        if self.current_session_id:
+                            data_service.increment_session_stats(
+                                self.current_session_id, income_delta=item_value, gift_count_delta=item_count,
+                            )
+                    payloads.append({
+                        'type': 'gift', **fields, 'gift_name': display_name, 'gift_count': item_count,
+                        'gift_price': item_price, 'total_value': item_value, 'is_combo': False,
+                    })
+                # 整包完成才屏蔽外层重放，部分保存失败时仍可重试未落库的子礼物。
+                if completed and dedupe_key:
+                    self.monitored_room.remember_trace(dedupe_key)
+            for payload in payloads:
+                self.socketio.emit(f'room_{self.live_id}', payload, room=f'room_{self.live_id}')
+            if payloads:
+                self._emit_room_stats_throttled()
+            return
 
         with self.monitored_room.data_lock:
             self._cleanup_combo_gifts(self.last_gift_time)

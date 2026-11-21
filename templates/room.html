@@ -33,36 +33,32 @@
             }
         }
         .message {
-            padding: 9px 13px;
-            margin: 6px 0;
-            border-radius: 10px;
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
-            font-size: 14px;
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 8px;
+            transition: background-color 0.14s ease;
+            font-size: 13.5px;
             line-height: 1.5;
         }
-        .message:hover {
-            transform: translateX(2px);
-            box-shadow: var(--hub-shadow-sm);
-        }
         .chat-message {
-            background: #f8fafc;
-            border-left: 3px solid #3b82f6;
+            background: #f9fafb;
+            border-left: 2px solid #d1d5db;
         }
         .gift-message {
             background: #fff1f2;
-            border-left: 3px solid #e11d48;
+            border-left: 2px solid #e11d48;
         }
         .gift-user-message {
             background: #fffbeb;
-            border-left: 3px solid #d97706;
+            border-left: 2px solid #d97706;
         }
         .user-highlight {
-            font-weight: 700;
-            color: #2563eb;
+            font-weight: 600;
+            color: #111827;
             cursor: pointer;
         }
         .user-highlight:hover {
-            color: #1d4ed8;
+            color: #2563eb;
             text-decoration: underline;
         }
         .user-level-icon {
@@ -79,53 +75,56 @@
         }
         .tab-button {
             position: relative;
-            padding: 11px 16px;
+            padding: 10px 16px;
             font-size: 13.5px;
             font-weight: 600;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
             border-bottom: 2px solid transparent;
         }
         .tab-button.active {
-            color: var(--hub-primary);
-            border-bottom-color: var(--hub-primary);
-            background: rgba(37, 99, 235, 0.05);
+            color: #111827;
+            border-bottom-color: #111827;
+            background: #ffffff;
         }
         .tab-badge {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             min-width: 20px;
-            height: 19px;
+            height: 18px;
             padding: 0 6px;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
             border-radius: 999px;
             margin-left: 5px;
-            background: #e2e8f0;
-            color: #334155;
+            background: #e5e7eb;
+            color: #4b5563;
         }
         .tab-button.active .tab-badge {
-            background: #dbeafe;
-            color: #1d4ed8;
+            background: #18181b;
+            color: #ffffff;
         }
         .rank-badge {
-            width: 26px;
-            height: 26px;
+            width: 24px;
+            height: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 999px;
+            border-radius: 6px;
             font-weight: 700;
-            font-size: 12px;
+            font-size: 11.5px;
+            font-variant-numeric: tabular-nums;
         }
-        .rank-1 { background: #f59e0b; color: #fff; }
-        .rank-2 { background: #94a3b8; color: #fff; }
-        .rank-3 { background: #b45309; color: #fff; }
-        .rank-other { background: #f1f5f9; color: #64748b; }
+        .rank-1 { background: #18181b; color: #fff; }
+        .rank-2 { background: #4b5563; color: #fff; }
+        .rank-3 { background: #9ca3af; color: #fff; }
+        .rank-other { background: #f3f4f6; color: #6b7280; }
         .user-modal-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(15, 23, 42, 0.55);
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(2px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -134,7 +133,8 @@
         }
         .user-modal-content {
             background: white;
-            border-radius: 14px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
             width: 100%;
             max-width: 640px;
             max-height: 86vh;
@@ -142,34 +142,35 @@
             box-shadow: var(--hub-shadow-lg);
         }
         .user-header {
-            background: linear-gradient(135deg, #2563eb 0%, #0f766e 100%);
-            padding: 22px;
-            border-radius: 14px 14px 0 0;
-            color: white;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 20px 22px;
+            border-radius: 12px 12px 0 0;
+            color: #111827;
         }
         .user-avatar-large {
-            width: 60px;
-            height: 60px;
+            width: 56px;
+            height: 56px;
             border-radius: 999px;
-            border: 2px solid rgba(255, 255, 255, 0.35);
-            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid #e5e7eb;
+            background: #f3f4f6;
             object-fit: cover;
         }
         .user-avatar-fallback {
-            background: linear-gradient(135deg, #f59e0b, #ec4899);
-            color: white;
+            background: #18181b;
+            color: #ffffff;
         }
         .user-tab-button {
-            padding: 11px 16px;
+            padding: 10px 16px;
             font-size: 13.5px;
             font-weight: 600;
             border-bottom: 2px solid transparent;
-            color: #64748b;
+            color: #6b7280;
         }
         .user-tab-button.active {
-            color: var(--hub-primary);
-            border-bottom-color: var(--hub-primary);
-            background: #f8fafc;
+            color: #111827;
+            border-bottom-color: #111827;
+            background: #ffffff;
         }
         .user-stat-chips {
             display: grid;
@@ -181,20 +182,22 @@
             .user-stat-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         .user-stat-chip {
-            background: rgba(0, 0, 0, 0.2);
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 8px 10px;
             text-align: center;
-            color: white;
+            color: #111827;
             position: relative;
         }
         .user-stat-chip-label {
             font-size: 11px;
-            color: rgba(255, 255, 255, 0.78);
+            color: #6b7280;
         }
         .user-stat-chip-value {
             font-size: 17px;
             font-weight: 700;
+            font-variant-numeric: tabular-nums;
             margin-top: 2px;
         }
         .user-messages-body {
@@ -254,23 +257,23 @@
 
         <main class="hub-container space-y-5">
             <!-- 房间头部信息与上下文动作 -->
-            <section class="hub-card p-4 sm:p-6">
-                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <section class="hub-card p-4 sm:px-5 sm:py-4">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
                     <div class="min-w-0 flex-1">
-                        <div class="flex flex-wrap items-center gap-2.5 mb-1.5">
-                            <h1 class="text-xl sm:text-2xl font-bold text-gray-900 truncate" v-if="room && room.anchor_name" v-text="room.anchor_name"></h1>
-                            <h1 class="text-xl sm:text-2xl font-bold text-gray-900 truncate" v-else v-text="live_id"></h1>
+                        <div class="flex flex-wrap items-center gap-2 mb-1">
+                            <h1 class="text-lg sm:text-xl font-bold text-gray-900 truncate" v-if="room && room.anchor_name" v-text="room.anchor_name"></h1>
+                            <h1 class="text-lg sm:text-xl font-bold text-gray-900 truncate" v-else v-text="live_id"></h1>
                             <span v-if="room" :class="['hub-badge', getBadgeClass(isArchived ? 'archived' : room.status)]">
                                 <span class="hub-badge-dot"></span>
                                 <span v-text="getStatusText(isArchived ? 'archived' : room.status)"></span>
                             </span>
                             <span v-if="currentSession && currentSession.status === 'live'" class="hub-badge is-live">直播中</span>
                         </div>
-                        <p class="text-gray-500 text-xs sm:text-sm font-mono" v-text="'直播间 ID: ' + live_id"></p>
+                        <p class="text-gray-400 text-xs font-mono" v-text="'ID: ' + live_id"></p>
                         <div
                             v-if="roomStatusNote"
                             :class="[
-                                'mt-3 inline-flex items-start gap-2 max-w-full px-3 py-2 rounded-lg border text-xs sm:text-sm font-medium',
+                                'mt-2.5 inline-flex items-start gap-2 max-w-full px-3 py-1.5 rounded-lg border text-xs font-medium',
                                 room && room.status === 'error'
                                     ? 'bg-red-50 border-red-200 text-red-700'
                                     : 'bg-yellow-50 border-yellow-200 text-yellow-800'
@@ -306,7 +309,7 @@
                             @click="openSessionsModal"
                             class="hub-btn hub-btn-secondary">
                             历史场次
-                            <span v-if="sessions.length" class="px-1.5 py-0.2 rounded-full bg-gray-100 text-gray-600 text-xs" v-text="sessions.length"></span>
+                            <span v-if="sessions.length" class="px-1.5 py-0.2 rounded bg-gray-100 text-gray-600 text-xs hub-num" v-text="sessions.length"></span>
                         </button>
                         <a
                             :href="'/stats?live_id=' + encodeURIComponent(live_id)"
@@ -320,94 +323,91 @@
                 </div>
             </section>
 
-            <!-- 实时人数与互动卡片（仅直播中或有实测数据时显示，未开播保持版面清爽） -->
-            <section v-if="showLiveMetricCards" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                <div class="hub-stat-card">
+            <!-- 实时人数与互动数据带（仅直播中或有实测数据时显示，未开播保持版面清爽） -->
+            <section v-if="showLiveMetricCards" class="hub-data-strip grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+                <div class="hub-data-cell">
                     <div class="text-xs font-medium text-gray-500">当前观看</div>
-                    <div class="text-xl sm:text-2xl font-bold text-blue-600 mt-1" v-text="formatNumber(stats.currentUserCount)"></div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(stats.currentUserCount)"></div>
                 </div>
-                <div class="hub-stat-card">
+                <div class="hub-data-cell">
                     <div class="text-xs font-medium text-gray-500">累计观看</div>
-                    <div class="text-xl sm:text-2xl font-bold text-green-600 mt-1" v-text="formatNumber(stats.totalUserCount)"></div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(stats.totalUserCount)"></div>
                 </div>
-                <div class="hub-stat-card">
+                <div class="hub-data-cell">
                     <div class="text-xs font-medium text-gray-500">累计点赞</div>
-                    <div class="text-xl sm:text-2xl font-bold text-red-500 mt-1" v-text="formatNumber(stats.totalLikeCount)"></div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(stats.totalLikeCount)"></div>
                 </div>
-                <div class="hub-stat-card">
+                <div class="hub-data-cell">
                     <div class="text-xs font-medium text-gray-500">本场贡献者</div>
-                    <div class="text-xl sm:text-2xl font-bold text-indigo-600 mt-1" v-text="formatNumber(stats.contributorCount)"></div>
+                    <div class="text-xl font-bold text-gray-900 hub-num mt-1" v-text="formatNumber(stats.contributorCount)"></div>
                 </div>
             </section>
 
             <!-- 当场直播统计 -->
-            <section v-if="currentSession" class="hub-card p-4 sm:p-5">
-                <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+            <section v-if="currentSession" class="hub-data-strip">
+                <div class="px-4 py-3 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2">
                     <div class="flex items-center gap-2">
-                        <h2 class="text-base sm:text-lg font-bold text-gray-900">当场直播数据</h2>
+                        <h2 class="text-sm font-bold text-gray-900">当场数据</h2>
                         <span :class="['hub-badge', currentSession.status === 'live' ? 'is-live' : 'is-stopped']"
                               v-text="getSessionStatusText(currentSession.status)"></span>
                     </div>
-                    <span v-if="currentSession.peak_viewer_count" class="text-xs sm:text-sm font-semibold text-indigo-600"
+                    <span v-if="currentSession.peak_viewer_count" class="text-xs font-semibold text-gray-600 hub-num"
                           v-text="'峰值观看 ' + formatNumber(currentSession.peak_viewer_count)"></span>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                    <div class="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                        <div class="text-xs text-blue-600 mb-1">开播时间</div>
-                        <div class="text-sm font-bold text-gray-800" v-text="formatDateTime(currentSession.start_time)"></div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">开播时间</div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="formatDateTime(currentSession.start_time)"></div>
                     </div>
-                    <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
-                        <div class="text-xs text-indigo-600 mb-1">直播时长</div>
-                        <div class="text-sm font-bold text-gray-800" v-text="getDuration(currentSession.start_time, currentSession.end_time, nowTick)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">直播时长</div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="getDuration(currentSession.start_time, currentSession.end_time, nowTick)"></div>
                     </div>
-                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                        <div class="text-xs text-yellow-700 mb-1">本场收入</div>
-                        <div class="text-sm font-bold text-yellow-800" v-text="formatIncome(currentSession.total_income)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">本场收入</div>
+                        <div class="text-sm font-bold text-yellow-700 hub-num" v-text="formatIncome(currentSession.total_income)"></div>
                     </div>
-                    <div class="bg-pink-50 border border-pink-200 rounded-lg p-3">
-                        <div class="text-xs text-pink-600 mb-1">本场礼物</div>
-                        <div class="text-sm font-bold text-pink-700" v-text="formatNumber(currentSession.total_gift_count)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">本场礼物</div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="formatNumber(currentSession.total_gift_count)"></div>
                     </div>
-                    <div class="bg-green-50 border border-green-200 rounded-lg p-3">
-                        <div class="text-xs text-green-600 mb-1">本场弹幕</div>
-                        <div class="text-sm font-bold text-green-700" v-text="formatNumber(currentSession.total_chat_count)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">本场弹幕</div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="formatNumber(currentSession.total_chat_count)"></div>
                     </div>
-                    <div class="bg-red-50 border border-red-200 rounded-lg p-3">
-                        <div class="text-xs text-red-500 mb-1">本场点赞</div>
-                        <div class="text-sm font-bold text-red-600" v-text="formatNumber(currentSession.total_like_count)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">本场点赞</div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="formatNumber(currentSession.total_like_count)"></div>
                     </div>
                 </div>
             </section>
 
             <!-- 未开播时显示上次直播简要回顾 -->
-            <section v-if="!currentSession && lastSession" class="hub-card p-4 sm:p-5">
-                <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
-                    <div>
-                        <h2 class="text-base sm:text-lg font-bold text-gray-900">上次直播回顾</h2>
-                        <p class="text-xs text-gray-400 mt-0.5">当前主播未开播，下方展示最近一次已记录场次</p>
-                    </div>
+            <section v-if="!currentSession && lastSession" class="hub-data-strip">
+                <div class="px-4 py-3 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2">
+                    <h2 class="text-sm font-bold text-gray-900">上次直播回顾</h2>
                     <a
                         :href="'/stats?live_id=' + encodeURIComponent(live_id) + '&session_id=' + lastSession.id"
-                        class="hub-btn hub-btn-primary text-xs">
-                        查看本场完整明细 →
+                        class="hub-row-primary">
+                        查看本场完整明细
                     </a>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div class="bg-gray-50 border border-gray-100 rounded-lg p-3">
+                <div class="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+                    <div class="hub-data-cell">
                         <div class="text-xs text-gray-500 mb-1">开播时间</div>
-                        <div class="text-sm font-bold text-gray-800" v-text="formatDateTime(lastSession.start_time)"></div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="formatDateTime(lastSession.start_time)"></div>
                     </div>
-                    <div class="bg-gray-50 border border-gray-100 rounded-lg p-3">
+                    <div class="hub-data-cell">
                         <div class="text-xs text-gray-500 mb-1">直播时长</div>
-                        <div class="text-sm font-bold text-gray-800" v-text="getDuration(lastSession.start_time, lastSession.end_time)"></div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="getDuration(lastSession.start_time, lastSession.end_time)"></div>
                     </div>
-                    <div class="bg-yellow-50 border border-yellow-100 rounded-lg p-3">
-                        <div class="text-xs text-yellow-700 mb-1">上次收入</div>
-                        <div class="text-sm font-bold text-yellow-800" v-text="formatIncome(lastSession.total_income)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">上次收入</div>
+                        <div class="text-sm font-bold text-yellow-700 hub-num" v-text="formatIncome(lastSession.total_income)"></div>
                     </div>
-                    <div class="bg-pink-50 border border-pink-100 rounded-lg p-3">
-                        <div class="text-xs text-pink-600 mb-1">上次礼物</div>
-                        <div class="text-sm font-bold text-pink-700" v-text="formatNumber(lastSession.total_gift_count)"></div>
+                    <div class="hub-data-cell">
+                        <div class="text-xs text-gray-500 mb-1">上次礼物</div>
+                        <div class="text-sm font-semibold text-gray-900 hub-num" v-text="formatNumber(lastSession.total_gift_count)"></div>
                     </div>
                 </div>
             </section>
@@ -437,11 +437,24 @@
                         </button>
                     </div>
 
+                    <div v-if="isOfflinePreview" class="px-3.5 py-2 bg-amber-50 border-b border-amber-100 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-800">
+                        <span>
+                            <strong class="font-semibold">当前未开播</strong>
+                            · 正在展示上一场（<span v-text="formatDateTime(previewSession.start_time)"></span>）收官消息，开播后将自动切换为实时流
+                        </span>
+                        <a :href="'/stats?live_id=' + encodeURIComponent(live_id) + '&session_id=' + previewSession.id"
+                           class="font-semibold text-amber-900 hover:underline whitespace-nowrap">
+                            查看该场完整记录 →
+                        </a>
+                    </div>
+
                     <div class="messages-container p-3 sm:p-4 bg-white relative">
                         <div v-if="filteredMessages.length === 0" class="text-center text-gray-400 py-16">
-                            <p class="text-sm font-medium" v-text="recentMessagesLoading ? '正在加载本场近期消息...' : '暂无新消息推送'"></p>
+                            <p class="text-sm font-medium"
+                               v-text="recentMessagesLoading ? '正在加载消息记录...' : (isOfflinePreview ? '上一场暂无弹幕或礼物记录' : '暂无新消息推送')"></p>
                             <p class="text-xs text-gray-400 mt-1">
                                 <span v-if="currentSession">进房时自动回填本场近期弹幕与礼物，新消息将实时追加在底部</span>
+                                <span v-else-if="isOfflinePreview">主播开播后将自动清空预览并实时显示新弹幕与礼物</span>
                                 <span v-else>主播开播后将实时接收并显示弹幕与礼物动态</span>
                             </p>
                         </div>
@@ -484,26 +497,30 @@
                                 @click="setRankTab('gift')"
                                 :class="['flex-1 py-2 text-sm font-semibold transition-colors border-b-2',
                                     activeRankTab === 'gift'
-                                        ? 'border-yellow-500 text-yellow-700'
-                                        : 'border-transparent text-gray-500 hover:text-yellow-600']">
+                                        ? 'border-gray-900 text-gray-900'
+                                        : 'border-transparent text-gray-500 hover:text-gray-900']">
                                 贡献榜
-                                <span v-if="stats.contributorInfo && stats.contributorInfo.length"
-                                      class="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold"
-                                      :class="activeRankTab === 'gift' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-200 text-gray-600'"
-                                      v-text="stats.contributorInfo.length"></span>
+                                <span v-if="displayedContributors.length"
+                                      class="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold hub-num"
+                                      :class="activeRankTab === 'gift' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'"
+                                      v-text="displayedContributors.length"></span>
                             </button>
                             <button
                                 @click="setRankTab('like')"
                                 :class="['flex-1 py-2 text-sm font-semibold transition-colors border-b-2',
                                     activeRankTab === 'like'
-                                        ? 'border-red-500 text-red-600'
-                                        : 'border-transparent text-gray-500 hover:text-red-500']">
+                                        ? 'border-gray-900 text-gray-900'
+                                        : 'border-transparent text-gray-500 hover:text-gray-900']">
                                 点赞榜
-                                <span v-if="stats.likeRankInfo && stats.likeRankInfo.length"
-                                      class="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold"
-                                      :class="activeRankTab === 'like' ? 'bg-red-100 text-red-700' : 'bg-gray-200 text-gray-600'"
-                                      v-text="stats.likeRankInfo.length"></span>
+                                <span v-if="displayedLikeRank.length"
+                                      class="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold hub-num"
+                                      :class="activeRankTab === 'like' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'"
+                                      v-text="displayedLikeRank.length"></span>
                             </button>
+                        </div>
+
+                        <div v-if="isOfflinePreview" class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2.5 py-1.5">
+                            当前未开播 · 展示上一场贡献榜与本房间累计点赞榜
                         </div>
 
                         <form @submit.prevent="searchUserByName" class="relative">
@@ -512,7 +529,7 @@
                                 @focus="userSearchFocused = true"
                                 @blur="onUserSearchBlur"
                                 type="text"
-                                class="w-full min-w-0 pl-9 pr-16 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white"
+                                class="w-full min-w-0 pl-9 pr-16 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-900 bg-white"
                                 placeholder="输入用户名自动搜索">
                             <svg class="absolute left-3 top-2 w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                                 <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
@@ -520,7 +537,7 @@
                             <button
                                 type="submit"
                                 :disabled="userSearchLoading"
-                                class="absolute right-1 top-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded text-xs font-medium">
+                                class="absolute right-1 top-1 px-2.5 py-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-white rounded text-xs font-medium">
                                 <span v-text="userSearchLoading ? '搜索中' : '搜索'"></span>
                             </button>
 
@@ -560,11 +577,10 @@
 
                     <div class="contributor-container">
                         <template v-if="activeRankTab === 'gift'">
-                            <div v-if="!stats.contributorInfo || stats.contributorInfo.length === 0" class="text-center text-gray-400 py-14 text-sm">
-                                暂无本场贡献数据
-                            </div>
+                            <div v-if="displayedContributors.length === 0" class="text-center text-gray-400 py-14 text-sm"
+                                 v-text="isOfflinePreview ? '上一场暂无礼物贡献数据' : '暂无本场贡献数据'"></div>
                             <div
-                                v-for="(contributor, index) in stats.contributorInfo"
+                                v-for="(contributor, index) in displayedContributors"
                                 :key="'gift-' + (contributor.user_id || index)"
                                 class="p-3 border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                 <div class="flex items-center">
@@ -577,12 +593,11 @@
                                         alt="用户头像">
                                     <div
                                         v-else
-                                        class="w-9 h-9 rounded-full mr-2.5 flex-shrink-0 flex items-center justify-center text-white font-bold text-xs"
-                                        style="background: linear-gradient(135deg, #f59e0b, #ec4899);"
+                                        class="w-9 h-9 rounded-full mr-2.5 flex-shrink-0 flex items-center justify-center bg-gray-100 text-gray-700 font-bold text-xs"
                                         v-text="(contributor.user || 'U').substring(0, 1)"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="flex items-center gap-1">
-                                            <span class="font-semibold text-sm text-gray-800 truncate cursor-pointer hover:text-blue-600"
+                                            <span class="font-semibold text-sm text-gray-900 truncate cursor-pointer hover:text-blue-600"
                                                  @click="openUserMessagesModal(contributor.user_id, contributor.user)"
                                                  v-text="contributor.user"></span>
                                             <img v-if="contributor.user_level"
@@ -592,18 +607,17 @@
                                                  :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'"
                                                  style="height: 16px; object-fit: contain; flex-shrink: 0;">
                                         </div>
-                                        <div class="text-xs font-semibold text-yellow-600 mt-0.5" v-text="formatNumber(contributor.score) + ' 钻石'"></div>
+                                        <div class="text-xs font-semibold text-yellow-700 hub-num mt-0.5" v-text="formatNumber(contributor.score) + ' 钻石'"></div>
                                     </div>
                                 </div>
                             </div>
                         </template>
 
                         <template v-else>
-                            <div v-if="!stats.likeRankInfo || stats.likeRankInfo.length === 0" class="text-center text-gray-400 py-14 text-sm">
-                                本场暂无点赞数据
-                            </div>
+                            <div v-if="displayedLikeRank.length === 0" class="text-center text-gray-400 py-14 text-sm"
+                                 v-text="isOfflinePreview ? '该房间暂无历史点赞数据' : '本场暂无点赞数据'"></div>
                             <div
-                                v-for="(liker, index) in stats.likeRankInfo"
+                                v-for="(liker, index) in displayedLikeRank"
                                 :key="'like-' + (liker.user_id || index)"
                                 class="p-3 border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                 <div class="flex items-center">
@@ -616,13 +630,12 @@
                                         alt="用户头像">
                                     <div
                                         v-else
-                                        class="w-9 h-9 rounded-full mr-2.5 flex-shrink-0 flex items-center justify-center text-white font-bold text-xs"
-                                        style="background: linear-gradient(135deg, #fb7185, #f97316);"
+                                        class="w-9 h-9 rounded-full mr-2.5 flex-shrink-0 flex items-center justify-center bg-gray-100 text-gray-700 font-bold text-xs"
                                         v-text="(liker.user || 'U').substring(0, 1)"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="flex items-center gap-1">
-                                            <span class="font-semibold text-sm text-gray-800 truncate cursor-pointer hover:text-blue-600"
-                                                 @click="openUserMessagesModal(liker.user_id, liker.user)"
+                                            <span class="font-semibold text-sm text-gray-900 truncate cursor-pointer hover:text-blue-600"
+                                                 @click="openUserMessagesModal(liker.user_id, liker.user, { allSessions: !currentSession })"
                                                  v-text="liker.user"></span>
                                             <img v-if="liker.user_level"
                                                  :src="'/level_img/level_' + liker.user_level + '.png'"
@@ -631,7 +644,7 @@
                                                  :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'"
                                                  style="height: 16px; object-fit: contain; flex-shrink: 0;">
                                         </div>
-                                        <div class="text-xs font-semibold text-red-500 mt-0.5" v-text="formatNumber(liker.like_count) + ' 次点赞'"></div>
+                                        <div class="text-xs font-medium text-gray-500 hub-num mt-0.5" v-text="formatNumber(liker.like_count) + ' 次点赞'"></div>
                                     </div>
                                 </div>
                             </div>
@@ -655,7 +668,7 @@
                             <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-xl font-bold mr-4"
                                  v-text="(userMessagesData.user.nickname || userMessagesData.user.user_id || 'U').substring(0, 1)"></div>
                             <div>
-                                <h2 class="text-lg font-bold flex items-center">
+                                <h2 class="text-lg font-bold text-gray-900 flex items-center">
                                     <span v-text="userMessagesData.user.nickname || userMessagesData.user.user_id"></span>
                                     <img v-if="userMessagesData.user.level"
                                          :src="'/level_img/level_' + userMessagesData.user.level + '.png'"
@@ -665,7 +678,7 @@
                                          style="height: 18px; margin-left: 4px; object-fit: contain;">
                                 </h2>
                                 <div v-if="userMessagesData.user.gender || userMessagesData.user.follower_count || userMessagesData.user.following_count || userMessagesData.user.age_range"
-                                     class="mt-1 text-xs text-white text-opacity-90 flex flex-wrap items-center gap-2">
+                                     class="mt-1 text-xs text-gray-500 flex flex-wrap items-center gap-2 hub-num">
                                     <span v-if="userMessagesData.user.gender" v-text="userMessagesData.user.gender === 1 ? '♂' : userMessagesData.user.gender === 2 ? '♀' : ''"></span>
                                     <span v-if="userMessagesData.user.age_range" v-text="formatAgeRange(userMessagesData.user.age_range)"></span>
                                     <span v-if="userMessagesData.user.following_count || userMessagesData.user.follower_count"
@@ -673,7 +686,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button @click="closeUserMessagesModal" class="text-white text-opacity-80 hover:text-opacity-100 text-2xl leading-none">&times;</button>
+                        <button @click="closeUserMessagesModal" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
                     </div>
 
                     <div class="user-stat-chips">

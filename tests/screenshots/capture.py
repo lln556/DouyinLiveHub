@@ -80,24 +80,24 @@ CHATS = [
 ]
 
 GIFTS_PLAN = [
-    ("u_1006", "嘉年华",       3000.0, 1),
-    ("u_1003", "仙女棒",       99.0,   8),
-    ("u_1001", "守护团徽章",   100.0,  5),
-    ("u_1006", "玫瑰",         1.0,    99),
-    ("u_1003", "小心心",       1.0,    200),
-    ("u_1001", "小心心",       1.0,    88),
-    ("u_1002", "玫瑰",         1.0,    36),
-    ("u_1004", "小心心",       1.0,    12),
+    ("u_1006", "嘉年华",       30000.0, 1),
+    ("u_1003", "至尊超跑",     12000.0, 1),
+    ("u_1001", "守护团徽章",   100.0,   5),
+    ("u_1006", "玫瑰",         1.0,     99),
+    ("u_1003", "小心心",       1.0,     200),
+    ("u_1001", "小心心",       1.0,     88),
+    ("u_1002", "玫瑰",         1.0,     36),
+    ("u_1004", "小心心",       1.0,     12),
 ]
 
 CONTRIBS = [
-    ("u_1006", 3099.0, 100, 2, 320),
-    ("u_1003", 992.0,  208, 1, 5800),
-    ("u_1001", 588.0,  93,  1, 1200),
-    ("u_1002", 36.0,   36,  1, 420),
-    ("u_1004", 12.0,   12,  1, 88),
-    ("u_1005", 0.0,    0,   1, 60),
-    ("u_1007", 0.0,    0,   1, 12),
+    ("u_1006", 30099.0, 100, 2, 320),
+    ("u_1003", 12200.0, 201, 1, 5800),
+    ("u_1001", 588.0,   93,  1, 1200),
+    ("u_1002", 36.0,    36,  1, 420),
+    ("u_1004", 12.0,    12,  1, 88),
+    ("u_1005", 0.0,     0,   1, 60),
+    ("u_1007", 0.0,     0,   1, 12),
 ]
 
 
@@ -138,7 +138,9 @@ def seed(ds: DataService) -> None:
                 monitor_type="manual",
                 auto_reconnect=False,
             )
-            if r["status"] == "archived":
+            if r["status"] == "offline":
+                kw["error_message"] = "主播未开播，等待开播中..."
+            elif r["status"] == "archived":
                 kw["archived_at"] = now - timedelta(days=2)
             sess.add(LiveRoom(**kw))
         sess.commit()
@@ -149,8 +151,8 @@ def seed(ds: DataService) -> None:
             anchor_name=ANCHOR_NAME,
             status="live",
             start_time=now - timedelta(hours=2, minutes=18),
-            total_income=12860.0,
-            total_gift_count=128,
+            total_income=42935.0,
+            total_gift_count=442,
             total_chat_count=860,
             total_like_count=18420,
             peak_viewer_count=215,
@@ -213,19 +215,29 @@ def seed(ds: DataService) -> None:
             ))
         sess.commit()
 
-        # 6) 已停止房间也加一场历史 session（让 /stats 有数据）
-        sess.add(LiveSession(
-            live_id="live_204",
-            anchor_name="晚风手账",
-            status="ended",
-            start_time=now - timedelta(days=1, hours=4),
-            end_time=now - timedelta(days=1, hours=1),
-            total_income=3240.0,
-            total_gift_count=42,
-            total_chat_count=280,
-            total_like_count=4200,
-            peak_viewer_count=88,
-        ))
+        # 6) 补充近 6 天虚构历史场次（让 /stats 趋势图丰富真实）
+        history_sessions = [
+            ("live_202", "山海图志", "live",   0, 3, 18600.0, 145, 510, 9600, 168),
+            ("live_201", "茶语小筑", "ended",  1, 3, 21400.0, 198, 620, 12800, 192),
+            ("live_204", "晚风手账", "ended",  2, 3,  9240.0,  76, 340,  5200, 108),
+            ("live_201", "茶语小筑", "ended",  3, 2, 15800.0, 130, 480,  8900, 174),
+            ("live_202", "山海图志", "ended",  4, 3, 27600.0, 210, 790, 14100, 224),
+            ("live_201", "茶语小筑", "ended",  5, 2, 12300.0, 112, 410,  7600, 155),
+        ]
+        for lid, aname, st, days_ago, hours_len, inc, gc, cc, lc, pv in history_sessions:
+            start_dt = (now - timedelta(days=days_ago)).replace(hour=19, minute=30, second=0, microsecond=0)
+            sess.add(LiveSession(
+                live_id=lid,
+                anchor_name=aname,
+                status=st,
+                start_time=start_dt,
+                end_time=None if st == "live" else start_dt + timedelta(hours=hours_len),
+                total_income=inc,
+                total_gift_count=gc,
+                total_chat_count=cc,
+                total_like_count=lc,
+                peak_viewer_count=pv,
+            ))
         sess.commit()
     finally:
         sess.close()
@@ -258,20 +270,19 @@ def capture(base_url: str) -> None:
 
         # 02 房间详情
         page.goto(f"{base_url}/room/{TARGET_LIVE_ID}")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1500)
+        page.wait_for_function(
+            "() => { const el = document.querySelector('.messages-container'); return el && el.innerText.includes('听了一下午都没腻'); }"
+        )
+        page.wait_for_timeout(800)
         page.screenshot(path=str(OUT_DIR / "02-room.png"), full_page=True)
         print("[ok] 02-room.png")
 
-        # 03 数据统计：选近 7 天 + 点查询统计，让 stats 主体有内容
+        # 03 数据统计：新版页面首屏即自动查询近7天
         page.goto(f"{base_url}/stats")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(800)
-        page.locator("button", has_text="近7天").click()
-        page.wait_for_timeout(500)
-        page.locator("button", has_text="查询统计").click()
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1500)
+        page.wait_for_function(
+            "() => { const vm = document.querySelector('#app') && document.querySelector('#app').__vue__; return Boolean(vm && vm.hasSearched === true && vm.loading === false); }"
+        )
+        page.wait_for_timeout(1200)
         page.screenshot(path=str(OUT_DIR / "03-stats.png"), full_page=True)
         print("[ok] 03-stats.png")
 
@@ -286,8 +297,11 @@ def capture(base_url: str) -> None:
 
         # 05 用户消息模态框（点击 04 搜索结果触发）
         page.locator('text=云间野客').first.click()
-        page.wait_for_timeout(1500)
-        page.screenshot(path=str(OUT_DIR / "05-user-modal.png"), full_page=True)
+        page.wait_for_function(
+            "() => { const vm = document.querySelector('#app') && document.querySelector('#app').__vue__; return Boolean(vm && vm.showUserMessagesModal === true && vm.userMessagesLoading === false); }"
+        )
+        page.wait_for_timeout(600)
+        page.screenshot(path=str(OUT_DIR / "05-user-modal.png"), full_page=False)
         print("[ok] 05-user-modal.png")
 
         browser.close()
@@ -333,19 +347,43 @@ def _stop_app_subprocess(proc: subprocess.Popen) -> None:
         proc.wait()
 
 
+def _resolve_test_db_url() -> str:
+    """从 TEST_DATABASE_URL 或 tests/.env.test 解析测试库连接串；若 3307 不可达则回退本地 3306。"""
+    import socket
+
+    explicit = (os.environ.get("TEST_DATABASE_URL") or "").strip()
+    if explicit:
+        assert "douyin_live_test" in explicit, f"Refusing non-test DB: {explicit}"
+        return explicit
+
+    url = (os.environ.get("DATABASE_URL") or "").strip()
+    assert "douyin_live_test" in url, f"Refusing non-test DB: {url}"
+    if "localhost:3307" in url or "127.0.0.1:3307" in url:
+        try:
+            with socket.create_connection(("127.0.0.1", 3307), timeout=0.3):
+                return url
+        except OSError:
+            return url.replace("localhost:3307", "127.0.0.1:3306").replace("127.0.0.1:3307", "127.0.0.1:3306")
+    return url
+
+
 def main() -> int:
     # 锁定测试库：不允许写 dev/生产库
-    test_db_url = "mysql+pymysql://douyin:douyin123@localhost:3307/douyin_live_test?charset=utf8mb4"
+    test_db_url = _resolve_test_db_url()
+    assert "douyin_live_test" in test_db_url, f"Refusing non-test DB: {test_db_url}"
     os.environ["DATABASE_URL"] = test_db_url
 
     # 临时端口，避开 dev app 占用的 7654
     port = int(os.environ.get("CAPTURE_PORT", "17654"))
     os.environ["APP_PORT"] = str(port)
 
-    # 截图阶段不连抖音、不走代理
+    # 截图阶段不连抖音、不走代理、关闭后台测活/备份干扰
     os.environ["DOUYIN_COOKIE"] = ""
     os.environ["PROXY_ENABLED"] = "False"
     os.environ["DEBUG"] = "False"
+    os.environ["COOKIE_HEALTH_CHECK_INTERVAL"] = "0"
+    os.environ["AUTO_DB_BACKUP_ENABLED"] = "false"
+    os.environ["STATUS_DISPLAY_ENABLED"] = "False"
 
     for required in ("AUTH_USERNAME", "AUTH_PASSWORD", "SECRET_KEY"):
         if not os.environ.get(required):
@@ -354,7 +392,7 @@ def main() -> int:
 
     base_url = f"http://localhost:{port}"
 
-    ds = DataService()
+    ds = DataService(test_db_url)
     ds.create_tables()
     truncate_test_db(ds)
 

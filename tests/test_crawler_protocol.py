@@ -14,6 +14,11 @@ from crawler.signature import get__ac_signature
 from protobuf.douyin import HeadersList, Message, PushFrame, Response
 
 
+@pytest.fixture(autouse=True)
+def clean_db():
+    """协议单测不使用 conftest 中面向 MySQL 的清库 fixture。"""
+
+
 @pytest.fixture
 def fetcher(monkeypatch):
     monkeypatch.setattr(module.config, "ANTI_DETECTION_ENABLED", False)
@@ -204,3 +209,76 @@ def test_concurrent_multithread_v8_signing_stress(fetcher):
             for future in futures:
                 future.result(timeout=15)
         gc.collect()
+
+
+def test_advanced_gift_protocol_roundtrip():
+    from protobuf import douyin as protocol
+
+    for name in ('GiftTrayInfo', 'GiftBuffInfo', 'SeriesPlayGift', 'BindingGiftMessage'):
+        assert hasattr(protocol, name), f'missing Webcast message: {name}'
+    buff = protocol.GiftBuffInfo(text='进阶', buff_gift_id=90, buff_level=2,
+                                 buff_can_send=True, buff_diamond_count=28888)
+    inner = protocol.GiftStruct(id=90, name='进阶礼物', diamond_count=1200,
+                                gift_buff_infos=[buff])
+    message = protocol.GiftMessage(
+        common=protocol.Common(msg_id=81), gift_id=90, gift=inner, group_count=2,
+        tray_info=protocol.GiftTrayInfo(origin_gift_id=8, buff_level=2,
+                                       toolbar_card_name='进阶卡片', tray_extra_text='附加文本'),
+        gift_play_param='{"real_diamond_count":28888}', count=2,
+        series_gift_data=[protocol.SeriesPlayGift(gift_struct=inner,
+                                                  diy_item_info='{"diamond_count":28888}')],
+    )
+    binding = protocol.BindingGiftMessage(msg=message, common=protocol.Common(msg_id=82))
+    parsed = protocol.BindingGiftMessage().parse(bytes(binding))
+    assert parsed == binding
+    assert bytes(parsed) == bytes(binding)
+    assert parsed.msg.tray_info.buff_level == 2
+    assert parsed.msg.series_gift_data[0].gift_struct.gift_buff_infos[0].buff_diamond_count == 28888
+
+
+def test_core_binding_gift_dispatch_and_business_tracking(fetcher):
+    fetcher._parseBindingGiftMsg = Mock()
+    response = Response(messages_list=[Message(method='WebcastBindingGiftMessage', payload=b'binding')])
+    fetcher._wsOnMessage(Mock(), bytes(PushFrame(payload=bytes(response))))
+    fetcher._parseBindingGiftMsg.assert_called_once_with(b'binding')
+    assert 'WebcastBindingGiftMessage' in fetcher.BUSINESS_MESSAGE_METHODS
+    assert fetcher._ws_last_business_at is not None
+
+
+def test_core_binding_gift_parser_logs_and_ignores_malformed_payload(fetcher):
+    from protobuf import douyin as protocol
+
+    assert hasattr(protocol, 'BindingGiftMessage')
+    fetcher.log = Mock()
+    message = protocol.BindingGiftMessage(msg=protocol.GiftMessage(
+        user=protocol.User(nick_name='viewer'), gift=protocol.GiftStruct(name='heart'), group_count=2))
+    fetcher._parseBindingGiftMsg(bytes(message))
+    fetcher.log.debug.assert_called()
+    fetcher._parseBindingGiftMsg(b'\x80')
+
+
+@pytest.mark.parametrize('raw', ['', '   ', '{bad', '[]', 'null'])
+def test_gift_price_config_invalid_json_falls_back(monkeypatch, caplog, raw):
+    monkeypatch.setenv('GIFT_PRICE_OVERRIDES', raw)
+    parser = getattr(module.config, 'parse_gift_price_overrides', None)
+    assert callable(parser), 'gift price config parser is missing'
+    result = parser()
+    assert result == module.config.SPECIAL_GIFT_DIAMOND_OVERRIDES
+    assert result is not module.config.SPECIAL_GIFT_DIAMOND_OVERRIDES
+    assert bool(caplog.records) == bool(raw.strip())
+
+
+def test_gift_price_config_merges_only_valid_values(monkeypatch):
+    monkeypatch.setenv('GIFT_PRICE_OVERRIDES', json.dumps({
+        '至尊超跑': 12345, ' 新礼物 ': 1.5, '免费礼物': 0, '': 5, '  ': 5,
+        'negative': -1, 'boolean': True, 'string': '8', 'nan': float('nan'),
+        'infinity': float('inf'),
+    }))
+    parser = getattr(module.config, 'parse_gift_price_overrides', None)
+    assert callable(parser), 'gift price config parser is missing'
+    result = parser()
+    assert result == {**module.config.SPECIAL_GIFT_DIAMOND_OVERRIDES,
+                      '至尊超跑': 12345, '新礼物': 1.5, '免费礼物': 0}
+    assert module.config.SPECIAL_GIFT_DIAMOND_OVERRIDES['至尊超跑'] == 12000
+    assert module.config.Config.SPECIAL_GIFT_DIAMOND_OVERRIDES == module.config.SPECIAL_GIFT_DIAMOND_OVERRIDES
+    assert module.config.Config.GIFT_PRICE_OVERRIDES == module.config.GIFT_PRICE_OVERRIDES

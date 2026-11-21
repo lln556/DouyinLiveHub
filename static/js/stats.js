@@ -28,10 +28,10 @@ const app = new Vue({
         activeRankTab: 'gift',  // 'gift' | 'like'
         chartMetric: 'income',
         chartMetrics: [
-            { key: 'income', field: 'income', label: '收入', stroke: '#d97706', fill: 'rgba(217, 119, 6, 0.14)', bg: '#fef3c7', activeText: '#92400e' },
-            { key: 'gift_count', field: 'gift_count', label: '礼物', stroke: '#db2777', fill: 'rgba(219, 39, 119, 0.12)', bg: '#fce7f3', activeText: '#9d174d' },
-            { key: 'like_count', field: 'like_count', label: '点赞', stroke: '#dc2626', fill: 'rgba(220, 38, 38, 0.11)', bg: '#fee2e2', activeText: '#991b1b' },
-            { key: 'peak_viewer', field: 'peak_viewer', label: '峰值观看', stroke: '#2563eb', fill: 'rgba(37, 99, 235, 0.12)', bg: '#dbeafe', activeText: '#1e3a8a' }
+            { key: 'income', field: 'income', label: '收入', stroke: '#d97706', fill: 'rgba(217, 119, 6, 0.12)', bg: '#fffbeb', activeText: '#b45309' },
+            { key: 'gift_count', field: 'gift_count', label: '礼物', stroke: '#059669', fill: 'rgba(5, 150, 105, 0.10)', bg: '#ecfdf5', activeText: '#065f46' },
+            { key: 'like_count', field: 'like_count', label: '点赞', stroke: '#e11d48', fill: 'rgba(225, 29, 72, 0.10)', bg: '#fff1f2', activeText: '#be123c' },
+            { key: 'peak_viewer', field: 'peak_viewer', label: '峰值观看', stroke: '#18181b', fill: 'rgba(24, 24, 27, 0.08)', bg: '#f3f4f6', activeText: '#111827' }
         ],
         chartRenderError: '',
         likers: [],
@@ -1140,9 +1140,7 @@ const app = new Vue({
                 this.userSearchError = '搜索失败，请稍后重试';
                 return false;
             } finally {
-                if (showLoading) {
-                    this.userMessagesLoading = false;
-                }
+                this.userMessagesLoading = false;
             }
         },
         async switchUserMessagesTab(tab) {
