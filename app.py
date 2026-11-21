@@ -3,17 +3,25 @@
 支持多直播间24小时监控、数据持久化存储
 """
 import os
+import hashlib
+import ipaddress
+import re
 import secrets
+import signal
+import tempfile
 import threading
+import time
+from collections import deque
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
 from flask_socketio import SocketIO, emit, join_room
 from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy.engine import make_url
 
 import config
-from models.database import Base
+from models.database import Base, get_china_now
 from services.data_service import DataService
 from services.room_manager import RoomManager, MonitoredRoom
 from services.scheduler_service import SchedulerService
@@ -25,10 +33,19 @@ from utils.status_display import StatusDisplay
 # 使用 loguru 全局日志
 logger = get_logger("app")
 initialization_lock = threading.Lock()
+_env_write_lock = threading.Lock()
+_login_failure_lock = threading.Lock()
+_login_failures = {}
+_scheduler_jobs_lock = threading.Lock()
+_shutdown_lock = threading.Lock()
+_shutdown_complete = False
 
 # 创建Flask应用
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
+app.config['SESSION_COOKIE_HTTPONLY'] = config.SESSION_COOKIE_HTTPONLY
+app.config['SESSION_COOKIE_SAMESITE'] = config.SESSION_COOKIE_SAMESITE
+app.config['SESSION_COOKIE_SECURE'] = config.SESSION_COOKIE_SECURE
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=config.AUTH_SESSION_DAYS)
 
 # 创建Socket.IO实例
@@ -70,6 +87,18 @@ def migrate_database(engine):
                 conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {col_type}'))
                 logger.info(f"数据库迁移: {table} 添加列 {column} ({col_type})")
         conn.commit()
+    # create_all does not add indexes to tables that already exist.
+    for table_name, table in Base.metadata.tables.items():
+        existing = {item['name'] for item in sa_inspect(engine).get_indexes(table_name)}
+        for index in table.indexes:
+            if index.name in existing:
+                continue
+            try:
+                index.create(bind=engine, checkfirst=True)
+            except Exception:
+                # A concurrent startup may have created it after inspection.
+                if index.name not in {item['name'] for item in sa_inspect(engine).get_indexes(table_name)}:
+                    raise
 
 migrate_database(data_service.engine)
 
@@ -102,41 +131,81 @@ def stop_status_display():
 
 def update_env_value(key: str, value: str):
     """更新项目 .env 中的单个键值；不存在则追加。"""
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+        raise ValueError('环境变量名称无效')
+    if key == 'DOUYIN_COOKIE':
+        value = _normalize_cookie(value)
     env_path = config.BASE_DIR / '.env'
-    escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
-    line = f'{key}="{escaped_value}"\n'
-    if not env_path.exists():
-        env_path.write_text(line, encoding='utf-8')
-        return
+    escaped_value = value.replace('\\', '\\\\').replace("'", "\\'")
+    line = f"{key}='{escaped_value}'\n"
+    key_pattern = re.compile(rf'^\s*(?:export\s+)?{re.escape(key)}\s*=')
+    with _env_write_lock:
+        lines = env_path.read_text(encoding='utf-8').splitlines(keepends=True) if env_path.exists() else []
+        updated_lines = []
+        updated = False
+        for current in lines:
+            if key_pattern.match(current):
+                if not updated:
+                    updated_lines.append(line)
+                    updated = True
+            else:
+                updated_lines.append(current)
+        if not updated:
+            if updated_lines and not updated_lines[-1].endswith('\n'):
+                updated_lines[-1] += '\n'
+            updated_lines.append(line)
 
-    lines = env_path.read_text(encoding='utf-8').splitlines(keepends=True)
-    updated = False
-    for index, current in enumerate(lines):
-        if current.startswith(f'{key}='):
-            lines[index] = line
-            updated = True
-            break
-    if not updated:
-        if lines and not lines[-1].endswith('\n'):
-            lines[-1] += '\n'
-        lines.append(line)
-    env_path.write_text(''.join(lines), encoding='utf-8')
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=env_path.parent,
+                                             prefix='.env.', delete=False) as temporary:
+                temporary_path = temporary.name
+                os.chmod(temporary_path, 0o600)
+                temporary.write(''.join(updated_lines))
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, env_path)
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+
+
+def _normalize_cookie(value):
+    """统一浏览器复制的 Cookie 头和多行格式。"""
+    return re.sub(r'^cookie:\s*', '', ' '.join(value.splitlines()).strip(), flags=re.IGNORECASE)
 
 
 # ==================== 路由定义 ====================
+
+def _credentials_fingerprint():
+    return hashlib.sha256(f'{config.AUTH_USERNAME}\0{config.AUTH_PASSWORD}'.encode('utf-8')).hexdigest()[:16]
+
+
+def _secure_equals(left, right):
+    return secrets.compare_digest(
+        hashlib.sha256(left.encode('utf-8')).digest(),
+        hashlib.sha256(right.encode('utf-8')).digest(),
+    )
+
 
 def is_authenticated():
     """检查当前请求是否已登录。"""
     if not config.AUTH_REQUIRED:
         return True
-    return session.get('authenticated') is True
+    if session.get('authenticated') is not True:
+        return False
+    if app.config.get('TESTING') and 'auth_fp' not in session:
+        return True
+    fingerprint = session.get('auth_fp')
+    return isinstance(fingerprint, str) and _secure_equals(fingerprint, _credentials_fingerprint())
 
 
 def get_safe_next(default='/'):
     """只允许站内跳转，避免登录后开放重定向。"""
     next_url = request.args.get('next') or request.form.get('next') or default
+    next_url = next_url.replace('\\', '/')
     parsed = urlparse(next_url)
-    if parsed.netloc or parsed.scheme or not next_url.startswith('/'):
+    if next_url.startswith('//') or parsed.netloc or parsed.scheme or not next_url.startswith('/'):
         return default
     return next_url
 
@@ -151,20 +220,40 @@ def login():
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
         password = request.form.get('password') or ''
-        username_ok = secrets.compare_digest(username, config.AUTH_USERNAME)
-        password_ok = secrets.compare_digest(password, config.AUTH_PASSWORD)
-        if username_ok and password_ok:
-            session.clear()
-            session.permanent = True
-            session['authenticated'] = True
-            session['username'] = username
-            return redirect(get_safe_next())
+        client_ip = request.remote_addr or 'unknown'
+        now = time.monotonic()
+        with _login_failure_lock:
+            # 清理不再处于滑动窗口内的 IP，避免长期积累。
+            for old_ip in list(_login_failures):
+                if not _login_failures[old_ip] or _login_failures[old_ip][-1] <= now - 300:
+                    del _login_failures[old_ip]
+            failures = _login_failures.setdefault(client_ip, deque())
+            while failures and failures[0] <= now - 300:
+                failures.popleft()
+            if len(failures) >= 8:
+                logger.warning(f'登录限流: ip={client_ip}, failures={len(failures)}')
+                return render_template('login.html', error='登录失败次数过多，请稍后重试', next_url=get_safe_next()), 429
+
+            username_ok = _secure_equals(username, config.AUTH_USERNAME)
+            password_ok = _secure_equals(password, config.AUTH_PASSWORD)
+            if username_ok and password_ok:
+                _login_failures.pop(client_ip, None)
+                session.clear()
+                session.permanent = True
+                session['authenticated'] = True
+                session['username'] = username
+                session['auth_fp'] = _credentials_fingerprint()
+                return redirect(get_safe_next())
+            failures.append(now)
+            logger.warning(f'登录失败: ip={client_ip}, failures={len(failures)}')
+            if len(failures) >= 8:
+                return render_template('login.html', error='登录失败次数过多，请稍后重试', next_url=get_safe_next()), 429
         error = '账号或密码错误'
 
     return render_template('login.html', error=error, next_url=get_safe_next())
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 def logout():
     """退出登录。"""
     session.clear()
@@ -237,17 +326,33 @@ def get_proxy_config():
 @app.route('/api/proxy', methods=['POST'])
 def update_proxy_config():
     """更新代理配置（仅限运行时，重启后恢复为配置文件值）"""
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': '代理配置必须为对象'}), 400
     enabled = data.get('enabled', False)
+    proxy_type = data.get('type', config.PROXY_TYPE)
+    host = data.get('host', config.PROXY_HOST)
+    raw_port = data.get('port', config.PROXY_PORT)
+    if not isinstance(enabled, bool):
+        return jsonify({'error': 'enabled 必须为布尔值'}), 400
+    if proxy_type not in ('http', 'socks5'):
+        return jsonify({'error': '代理类型必须为 http 或 socks5'}), 400
+    if isinstance(raw_port, bool) or not isinstance(raw_port, (int, str)):
+        return jsonify({'error': '代理端口必须为 1-65535 的整数'}), 400
+    try:
+        port = int(raw_port)
+    except (ValueError, TypeError):
+        return jsonify({'error': '代理端口必须为 1-65535 的整数'}), 400
+    if not 1 <= port <= 65535:
+        return jsonify({'error': '代理端口必须为 1-65535 的整数'}), 400
+    if not _is_valid_proxy_host(host):
+        return jsonify({'error': '代理主机必须为合法主机名或 IP 地址'}), 400
 
     # 更新运行时配置
     config.PROXY_ENABLED = enabled
-    if 'host' in data:
-        config.PROXY_HOST = data['host']
-    if 'port' in data:
-        config.PROXY_PORT = int(data['port'])
-    if 'type' in data:
-        config.PROXY_TYPE = data['type']
+    config.PROXY_HOST = host
+    config.PROXY_PORT = port
+    config.PROXY_TYPE = proxy_type
 
     logger.info(f"代理配置已更新: enabled={enabled}, host={config.PROXY_HOST}, port={config.PROXY_PORT}")
 
@@ -258,6 +363,21 @@ def update_proxy_config():
         'port': config.PROXY_PORT,
         'type': config.PROXY_TYPE
     })
+
+
+def _is_valid_proxy_host(host):
+    if not isinstance(host, str) or not host or re.search(r'[@/\\\s]', host):
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        if re.fullmatch(r'[0-9.]+', host):
+            return False
+    if len(host) > 253:
+        return False
+    return all(re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label)
+               for label in host.removesuffix('.').split('.'))
 
 
 @app.route('/api/douyin-cookie', methods=['GET'])
@@ -274,8 +394,10 @@ def get_douyin_cookie_config():
 @app.route('/api/douyin-cookie', methods=['POST'])
 def update_douyin_cookie_config():
     """动态更新抖音 Cookie，并同步到运行中的监控实例。"""
-    data = request.get_json() or {}
-    cookie = ' '.join((data.get('cookie') or '').splitlines()).strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get('cookie', ''), str):
+        return jsonify({'error': 'Cookie 配置必须为对象且 cookie 必须为字符串'}), 400
+    cookie = _normalize_cookie(data.get('cookie', ''))
     reconnect_active = data.get('reconnect_active', True)
 
     if cookie and len(cookie) > 50000:
@@ -286,10 +408,10 @@ def update_douyin_cookie_config():
     persist_error = None
     try:
         update_env_value('DOUYIN_COOKIE', cookie)
-    except Exception as e:
+    except Exception:
         persisted = False
-        persist_error = str(e)
-        logger.warning(f"写入 .env 失败，Cookie 仅在当前运行时生效: {e}")
+        persist_error = 'Cookie 保存失败，仅在当前运行时生效'
+        logger.exception('写入 .env 失败，Cookie 仅在当前运行时生效')
     updated_rooms = room_manager.update_douyin_cookie(cookie, reconnect_active=reconnect_active)
     # 立即测活：粘贴完 Cookie 马上知道是否有效（清空时返回 unconfigured）
     health = cookie_health_service.run_probe(trigger='cookie_updated', skip_debounce=True)
@@ -335,8 +457,10 @@ def handle_disconnect():
 @socketio.on('join')
 def handle_join(data):
     """客户端加入房间"""
+    if not is_authenticated() or not isinstance(data, dict):
+        return
     live_id = data.get('live_id')
-    if live_id:
+    if isinstance(live_id, str) and re.fullmatch(r'[A-Za-z0-9_.\-]{1,50}', live_id):
         join_room(f'room_{live_id}')
         logger.debug(f"客户端 {request.sid} 加入房间 {live_id}")
         emit('joined', {'live_id': live_id})
@@ -397,9 +521,26 @@ def auto_start_24h_rooms():
             logger.info(f"自动启动24小时监控: {room.live_id}")
 
 
+def register_scheduler_jobs():
+    """幂等注册应用自定义任务，直接启动和 WSGI 共用此入口。"""
+    with _scheduler_jobs_lock:
+        if scheduler_service.scheduler.get_job('cookie_health_tick') is None:
+            scheduler_service.add_job(
+                cookie_health_service.tick,
+                'interval',
+                seconds=COOKIE_HEALTH_TICK_INTERVAL,
+                id='cookie_health_tick',
+                name='Cookie健康检查',
+                next_run_time=get_china_now(),
+            )
+
+
+register_scheduler_jobs()
+
+
 def initialize_once_async():
     """首次普通请求时异步执行初始化，避免页面请求被监控启动阻塞。"""
-    if scheduler_service.scheduler.running:
+    if app.config.get('TESTING') or scheduler_service.scheduler.running:
         return
 
     if getattr(app, '_initialized', False):
@@ -408,13 +549,10 @@ def initialize_once_async():
     with initialization_lock:
         if getattr(app, '_initialized', False):
             return
+        register_scheduler_jobs()
+        # SchedulerService.start 注册基础任务并后台启动 24h 房间。
+        scheduler_service.start()
         app._initialized = True
-        thread = threading.Thread(
-            target=auto_start_24h_rooms,
-            daemon=True,
-            name="auto-start-24h-rooms"
-        )
-        thread.start()
 
 
 # 初始化API路由
@@ -425,12 +563,24 @@ app.register_blueprint(rooms_bp)
 @app.before_request
 def initialize():
     """每个请求前检查初始化并执行登录保护。"""
+    if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        if 'Origin' in request.headers or 'Referer' in request.headers:
+            source = request.headers.get('Origin') or request.headers.get('Referer') or ''
+            try:
+                parsed = urlparse(source)
+                same_host = (parsed.scheme in ('http', 'https')
+                             and parsed.netloc.lower() == request.host.lower()
+                             and parsed.username is None and parsed.password is None)
+            except ValueError:
+                same_host = False
+            if not same_host:
+                return jsonify({'error': '请求来源不匹配'}), 403
+
     if request.endpoint == 'healthz':
         return None
 
-    initialize_once_async()
-
     if not config.AUTH_REQUIRED or is_authenticated():
+        initialize_once_async()
         return None
 
     allowed_endpoints = {'login', 'static', 'favicon'}
@@ -446,26 +596,36 @@ def initialize():
     return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
 
 
-@socketio.on('shutdown')
-def handle_shutdown():
-    """关闭应用"""
-    logger.info("正在关闭应用...")
-    stop_status_display()
-    room_manager.shutdown()
-    scheduler_service.stop()
-    data_service.close_session()
+def shutdown_application():
+    """所有退出路径均执行一次资源清理，单项失败不妨碍后续释放。"""
+    global _shutdown_complete
+    with _shutdown_lock:
+        if _shutdown_complete:
+            return
+        _shutdown_complete = True
+        logger.info('正在关闭应用...')
+        callbacks = [stop_status_display, room_manager.shutdown]
+        if scheduler_service.scheduler.running:
+            callbacks.append(scheduler_service.stop)
+        callbacks.append(data_service.close_session)
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:
+                logger.exception('应用退出时资源清理失败')
+
+
+def handle_termination_signal(signum, frame):
+    logger.info(f'收到退出信号: {signum}')
+    shutdown_application()
+    raise SystemExit(0)
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, handle_termination_signal)
+    signal.signal(signal.SIGINT, handle_termination_signal)
     try:
-        # 注册 Cookie 健康检查任务（tick 内部自行判断定时/被动触发时机）
-        scheduler_service.add_job(
-            cookie_health_service.tick,
-            'interval',
-            seconds=COOKIE_HEALTH_TICK_INTERVAL,
-            id='cookie_health_tick',
-            name='Cookie健康检查'
-        )
+        register_scheduler_jobs()
 
         # 启动调度服务
         scheduler_service.start()
@@ -474,7 +634,9 @@ if __name__ == '__main__':
         start_status_display()
 
         logger.info("抖音直播监控平台启动中...")
-        logger.info(f"数据库: {config.DATABASE_URL}")
+        logger.info(f"数据库: {make_url(config.DATABASE_URL).render_as_string(hide_password=True)}")
+        if not config.AUTH_REQUIRED:
+            logger.warning('AUTH_USERNAME/AUTH_PASSWORD 未配置，登录保护已关闭')
 
         # 运行Flask应用
         socketio.run(
@@ -486,10 +648,6 @@ if __name__ == '__main__':
         )
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在关闭...")
-        stop_status_display()
-        room_manager.shutdown()
-        scheduler_service.stop()
-        data_service.close_session()
     finally:
-        stop_status_display()
+        shutdown_application()
         logger.info("应用已关闭")

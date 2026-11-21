@@ -195,6 +195,8 @@ class StatusDisplay:
         rows = []
         try:
             data_service = self.room_manager.data_service
+            with self.room_manager.lock:
+                active_rooms = self.room_manager.active_rooms.copy()
 
             # 获取数据库中所有房间
             all_rooms = data_service.list_live_rooms()
@@ -211,10 +213,11 @@ class StatusDisplay:
                 }
 
                 # 如果房间在活跃列表中，获取实时统计
-                monitored = self.room_manager.active_rooms.get(live_id)
+                monitored = active_rooms.get(live_id)
                 if monitored:
-                    row['current_user_count'] = monitored.stats.get('current_user_count', 0)
-                    row['total_income'] = monitored.stats.get('total_income', 0)
+                    stats = monitored.get_stats()
+                    row['current_user_count'] = stats.get('current_user_count', 0)
+                    row['total_income'] = stats.get('total_income', 0)
 
                 # 错误信息（首次运行不显示状态检测失败提示）
                 if room.status == 'error' and room.error_message:
@@ -311,6 +314,7 @@ class StatusDisplay:
                     self._live = live
                     while not self._stop_event.is_set():
                         live.update(self._build_table())
+                        self._first_run = False
                         self._stop_event.wait(self.refresh_interval)
                     self._live = None
             except Exception:

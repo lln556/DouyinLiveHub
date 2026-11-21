@@ -11,6 +11,7 @@ WARNING/ERROR 消息会渲染在状态面板上方，不会破坏面板布局。
 import sys
 from pathlib import Path
 from loguru import logger
+from loguru._file_sink import FileSink
 from rich.text import Text
 
 import config
@@ -84,6 +85,19 @@ def _console_sink(message):
         sys.stderr.write(str(message))
 
 
+class _ErrorLogRotation:
+    """保留配置的轮转阈值，同时每天轮转以触发 retention 清理。"""
+
+    def __init__(self, configured_rotation):
+        self._configured = FileSink._make_rotation_function(configured_rotation)
+        self._daily = FileSink._make_rotation_function("00:00")
+
+    def __call__(self, message, file):
+        daily_due = self._daily(message, file)
+        configured_due = self._configured(message, file) if self._configured else False
+        return daily_due or configured_due
+
+
 def setup_logger():
     """
     配置全局日志器
@@ -110,6 +124,7 @@ def setup_logger():
         retention=config.LOG_RETENTION,
         compression=config.LOG_COMPRESSION or None,
         encoding="utf-8",
+        enqueue=True,
         filter=lambda record: record["extra"].get("room_id") is not None
     )
 
@@ -118,10 +133,11 @@ def setup_logger():
         log_dir / "error_{time:YYYY-MM-DD}.log",
         format=FILE_FORMAT,
         level="ERROR",
-        rotation=config.ERROR_LOG_ROTATION,
+        rotation=_ErrorLogRotation(config.ERROR_LOG_ROTATION),
         retention=config.LOG_RETENTION,
         compression=config.LOG_COMPRESSION or None,
         encoding="utf-8",
+        enqueue=True,
         filter=lambda record: record["extra"].get("room_id") is not None
     )
 

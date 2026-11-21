@@ -3,14 +3,18 @@
 抖音直播监控平台配置
 """
 import os
+import logging
+import secrets
+import sys
 from pathlib import Path
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-load_dotenv()
+from dotenv import dotenv_values, load_dotenv
 
 # 基础路径
 BASE_DIR = Path(__file__).resolve().parent
+
+# 环境变量仍优先用于普通配置，Cookie 在下方单独读取持久化值。
+load_dotenv(BASE_DIR / '.env')
+logger = logging.getLogger(__name__)
 
 
 def _is_running_in_docker() -> bool:
@@ -31,6 +35,37 @@ def _get_bool_env(name: str, default: bool) -> bool:
         return default
     return raw_value.strip().lower() in ('1', 'true', 'yes', 'on')
 
+
+def _resolve_secret_key() -> str:
+    """占位密钥使用私有持久化随机值，避免重启使登录态失效。"""
+    configured = os.getenv('SECRET_KEY', '').strip()
+    placeholders = {
+        'your-secret-key-change-in-production',
+        'change-this-secret-key-in-production',
+        'your-secret-key',
+    }
+    if configured and configured not in placeholders:
+        return configured
+
+    key_path = BASE_DIR / 'data' / '.secret_key'
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        os.chmod(key_path, 0o600)
+        key = key_path.read_text(encoding='utf-8').strip()
+        if not key:
+            raise RuntimeError('持久化 SECRET_KEY 文件为空，请检查 data/.secret_key')
+    else:
+        key = secrets.token_hex(32)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as key_file:
+            os.fchmod(key_file.fileno(), 0o600)
+            key_file.write(key)
+            key_file.flush()
+            os.fsync(key_file.fileno())
+    logger.warning('SECRET_KEY 未配置或使用占位值，已使用 data/.secret_key 持久化密钥')
+    return key
+
 # 数据库配置 - MySQL 8.0+
 # 格式: mysql+pymysql://用户名:密码@主机/数据库名
 DATABASE_URL = os.getenv(
@@ -39,7 +74,10 @@ DATABASE_URL = os.getenv(
 )
 
 # Flask配置
-SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+SECRET_KEY = _resolve_secret_key()
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')
+SESSION_COOKIE_SECURE = _get_bool_env('SESSION_COOKIE_SECURE', False)
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 AUTH_USERNAME = os.getenv('AUTH_USERNAME', '').strip()
 AUTH_PASSWORD = os.getenv('AUTH_PASSWORD', '')
@@ -58,7 +96,7 @@ PROXY_PORT = int(os.getenv('PROXY_PORT', '7890'))  # 代理端口
 PROXY_TYPE = os.getenv('PROXY_TYPE', 'http')  # 代理类型: http, socks5
 
 # WebSocket配置
-SOCKETIO_CORS_ALLOWED_ORIGINS = os.getenv('SOCKETIO_CORS_ALLOWED_ORIGINS', '*')
+SOCKETIO_CORS_ALLOWED_ORIGINS = os.getenv('SOCKETIO_CORS_ALLOWED_ORIGINS') or None
 SOCKETIO_LOGGER = os.getenv('SOCKETIO_LOGGER', 'False') == 'True'
 SOCKETIO_ENGINEIO_LOGGER = os.getenv('SOCKETIO_ENGINEIO_LOGGER', 'False') == 'True'
 SOCKETIO_ASYNC_MODE = os.getenv('SOCKETIO_ASYNC_MODE', 'threading')
@@ -114,6 +152,11 @@ WS_LIVE_URL = "https://live.douyin.com/"
 # 抖音登录 Cookie
 # 2026-05 起，游客身份可能收不到礼物推送；如需礼物消息，请配置已登录 live.douyin.com 后取得的完整 Cookie。
 DOUYIN_COOKIE = os.getenv('DOUYIN_COOKIE', '').strip()
+if 'pytest' not in sys.modules:
+    # python-dotenv 即使使用单引号也展开 ${...}，Cookie 必须按字面值解析。
+    persisted_cookie = dotenv_values(BASE_DIR / '.env', interpolate=False).get('DOUYIN_COOKIE')
+    if persisted_cookie and persisted_cookie.strip():
+        DOUYIN_COOKIE = persisted_cookie.strip()
 
 # 确保必要的目录存在
 os.makedirs(BASE_DIR / 'data', exist_ok=True)

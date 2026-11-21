@@ -1,5 +1,6 @@
 """CookieHealthService 状态机单测：防抖、恢复、事件写入。probe 全部 mock。"""
 import pytest
+import threading
 
 import config
 from services.cookie_health import CookieHealthService, CookieProbeResult
@@ -16,6 +17,7 @@ class StubDataService:
 class StubRoomManager:
     def __init__(self):
         self.active_rooms = {}
+        self.lock = threading.Lock()
 
 
 @pytest.fixture
@@ -206,3 +208,111 @@ def test_tick_unconfigured_sets_status_and_skips_probe(service, monkeypatch):
     service.tick()
     assert calls == []
     assert service.status == 'unconfigured'
+
+
+def test_zero_interval_disables_passive_and_scheduled_probes(service, monkeypatch):
+    monkeypatch.setattr(config, 'COOKIE_HEALTH_CHECK_INTERVAL', 0)
+    now = time.time()
+    service.room_manager.active_rooms['r1'] = _room_with_fetcher(
+        ws_open_time=now - 7200, last_chat_time=now - 30)
+    calls = []
+    monkeypatch.setattr(service, 'run_probe', lambda trigger, **kw: calls.append(trigger))
+    service.tick()
+    assert calls == []
+
+
+@pytest.mark.parametrize('trigger', ['manual', 'cookie_updated'])
+def test_zero_interval_still_allows_explicit_probe(service, monkeypatch, trigger):
+    monkeypatch.setattr(config, 'COOKIE_HEALTH_CHECK_INTERVAL', 0)
+    _set_probe(monkeypatch, 'alive')
+    assert service.run_probe(trigger)['status'] == 'healthy'
+
+
+def test_recovery_event_survives_unconfigured_state(service, monkeypatch):
+    _set_probe(monkeypatch, 'dead')
+    service.run_probe('manual', skip_debounce=True)
+    monkeypatch.setattr(config, 'DOUYIN_COOKIE', '')
+    assert service.run_probe('cookie_updated')['status'] == 'unconfigured'
+    monkeypatch.setattr(config, 'DOUYIN_COOKIE', 'sessionid=new')
+    _set_probe(monkeypatch, 'alive')
+    assert service.run_probe('cookie_updated')['status'] == 'healthy'
+    service.run_probe('manual')
+    assert [event[1] for event in service.data_service.events] == ['cookie_dead', 'cookie_recovered']
+
+
+def test_probe_does_not_hold_state_lock_during_network_request(service, monkeypatch):
+    entered = threading.Event()
+    release = threading.Event()
+    snapshot_done = threading.Event()
+
+    def probe(*args):
+        entered.set()
+        release.wait(timeout=3)
+        return CookieProbeResult('alive', 'ok')
+
+    monkeypatch.setattr('services.cookie_health.probe_douyin_cookie', probe)
+    worker = threading.Thread(target=service.run_probe, args=('manual',))
+    reader = threading.Thread(target=lambda: (service.snapshot(), snapshot_done.set()))
+    worker.start()
+    try:
+        assert entered.wait(timeout=1)
+        acquired = service._lock.acquire(blocking=False)
+        if acquired:
+            service._lock.release()
+        assert acquired, '网络请求占用了状态锁'
+        reader.start()
+        assert snapshot_done.wait(timeout=1)
+    finally:
+        release.set()
+        worker.join(timeout=2)
+        if reader.ident:
+            reader.join(timeout=2)
+
+
+def test_snapshot_waits_for_state_lock(service):
+    entered = threading.Event()
+    done = threading.Event()
+
+    def read():
+        entered.set()
+        service.snapshot()
+        done.set()
+
+    with service._lock:
+        worker = threading.Thread(target=read)
+        worker.start()
+        assert entered.wait(timeout=1)
+        was_blocked = not done.wait(timeout=0.05)
+    worker.join(timeout=1)
+    assert was_blocked
+    assert done.is_set()
+
+
+def test_probe_result_is_discarded_if_cookie_changed_during_request(service, monkeypatch):
+    def probe(*args):
+        monkeypatch.setattr(config, 'DOUYIN_COOKIE', '')
+        return CookieProbeResult('alive', 'old cookie')
+
+    monkeypatch.setattr('services.cookie_health.probe_douyin_cookie', probe)
+    assert service.run_probe('manual')['status'] == 'unconfigured'
+    assert service.last_ok_time is None
+
+
+@pytest.mark.parametrize('payload', [
+    {'status_code': 429, 'data': None, 'message': 'Too many requests'},
+    {}, [], None,
+])
+def test_probe_rate_limit_and_malformed_payload_are_inconclusive(monkeypatch, payload):
+    from services.cookie_health import probe_douyin_cookie
+
+    monkeypatch.setattr('services.cookie_health.requests.get', lambda *a, **kw: SimpleNamespace(
+        status_code=200, json=lambda: payload))
+    assert probe_douyin_cookie('sessionid=test').outcome == 'inconclusive'
+
+
+def test_probe_known_logged_out_code_is_dead(monkeypatch):
+    from services.cookie_health import probe_douyin_cookie
+
+    monkeypatch.setattr('services.cookie_health.requests.get', lambda *a, **kw: SimpleNamespace(
+        status_code=200, json=lambda: {'status_code': 20003, 'data': None, 'message': "User doesn't login"}))
+    assert probe_douyin_cookie('sessionid=test').outcome == 'dead'

@@ -3,11 +3,14 @@ import tempfile
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import pytest
 
 from models.database import CHINA_TZ
 from services import room_manager as room_manager_module
 from services.data_service import DataService
+from services.scheduler_service import SchedulerService
 from ws_handlers.handlers import WebDouyinLiveFetcher
 
 
@@ -132,6 +135,151 @@ class RoomManagerLifecycleTest(unittest.TestCase):
         manager.active_rooms = {}
         manager.lock = threading.Lock()
         return manager
+
+    def test_shutdown_preserves_auto_reconnect_and_joins_monitor_thread(self):
+        manager = self.make_manager()
+        manager.data_service.room.auto_reconnect = True
+        room = room_manager_module.MonitoredRoom("123", manager)
+        manager.active_rooms["123"] = room
+        room.thread = Mock()
+        room.fetcher = Mock()
+        with patch.object(room, "_schedule_manual_stop_session_check") as manual_check:
+            manager.shutdown()
+        self.assertTrue(room.shutdown_event.is_set())
+        self.assertTrue(manager.data_service.room.auto_reconnect)
+        self.assertEqual(manager.data_service.room.status, "stopped")
+        self.assertEqual(manager.data_service.events, [])
+        manual_check.assert_not_called()
+        room.fetcher.stop.assert_called_once()
+        room.thread.join.assert_called_once_with(timeout=3)
+
+    def test_shutdown_preserves_database_auto_reconnect(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as db_file:
+            data_service = DataService(f"sqlite:///{db_file.name}")
+            try:
+                data_service.create_tables()
+                data_service.create_live_room("123", anchor_name="anchor", auto_reconnect=True, monitor_type="24h")
+                manager = self.make_manager(data_service)
+                manager.active_rooms["123"] = room_manager_module.MonitoredRoom("123", manager)
+                manager.shutdown()
+                self.assertTrue(data_service.get_live_room("123").auto_reconnect)
+            finally:
+                data_service.close_session()
+
+    def test_offline_without_active_session_is_checked_only_once_per_threshold(self):
+        manager = self.make_manager()
+        room = room_manager_module.MonitoredRoom("123", manager)
+        with (
+            patch.object(manager.data_service, "get_current_live_session", return_value=None) as query,
+            patch.object(room_manager_module.config, "MONITOR_OFFLINE_END_THRESHOLD", 2),
+        ):
+            for _ in range(12):
+                self.assertFalse(room.check_and_end_session_if_offline())
+            query.assert_called_once()
+            room.reset_offline_counter()
+            for _ in range(2):
+                room.check_and_end_session_if_offline()
+            self.assertEqual(query.call_count, 2)
+
+    def test_cookie_update_performs_io_after_releasing_manager_lock(self):
+        manager = self.make_manager()
+        room = room_manager_module.MonitoredRoom("123", manager)
+        room.thread = AliveThread()
+
+        def update(cookie, reconnect):
+            acquired = manager.lock.acquire(blocking=False)
+            self.assertTrue(acquired)
+            if acquired:
+                manager.lock.release()
+
+        room.fetcher = SimpleNamespace(
+            update_douyin_cookie=Mock(side_effect=update),
+            _fetcher=SimpleNamespace(ws=object()),
+        )
+        manager.data_service.update_live_room_reconnect = Mock()
+        manager.active_rooms["123"] = room
+        self.assertEqual(manager.update_douyin_cookie("sessionid=new"), 1)
+        room.fetcher.update_douyin_cookie.assert_called_once_with("sessionid=new", reconnect=True)
+
+    def test_cookie_update_does_not_mark_static_waiting_room_for_reconnect(self):
+        manager = self.make_manager()
+        room = room_manager_module.MonitoredRoom("123", manager)
+        room.fetcher = SimpleNamespace(
+            update_douyin_cookie=Mock(), _fetcher=SimpleNamespace(ws=None))
+        manager.active_rooms["123"] = room
+        self.assertEqual(manager.update_douyin_cookie("sessionid=new"), 1)
+        self.assertFalse(room.cookie_refresh_requested)
+        room.fetcher.update_douyin_cookie.assert_called_once_with("sessionid=new", reconnect=False)
+
+    def test_cookie_update_does_not_reconnect_closed_socket_while_polling(self):
+        manager = self.make_manager()
+        room = room_manager_module.MonitoredRoom("123", manager)
+        room.thread = AliveThread()
+        room.fetcher = SimpleNamespace(update_douyin_cookie=Mock(),
+                                       _fetcher=SimpleNamespace(ws=SimpleNamespace(keep_running=False)))
+        manager.active_rooms["123"] = room
+        manager.data_service.update_live_room_reconnect = Mock()
+        manager.update_douyin_cookie("sessionid=new")
+        self.assertFalse(room.cookie_refresh_requested)
+        manager.data_service.update_live_room_reconnect.assert_not_called()
+        room.fetcher.update_douyin_cookie.assert_called_once_with("sessionid=new", reconnect=False)
+
+    def test_all_room_status_uses_snapshot_and_queries_outside_lock(self):
+        manager = self.make_manager()
+        room = room_manager_module.MonitoredRoom("123", manager)
+        manager.active_rooms["123"] = room
+        manager.data_service.room.anchor_name = "anchor"
+        manager.data_service.room.monitor_type = "24h"
+        manager.data_service.room.reconnect_count = 0
+
+        def list_rooms():
+            acquired = manager.lock.acquire(blocking=False)
+            self.assertTrue(acquired)
+            if acquired:
+                manager.active_rooms.clear()
+                manager.lock.release()
+            return [manager.data_service.room]
+
+        manager.data_service.list_live_rooms = Mock(side_effect=list_rooms)
+        result = manager.get_all_rooms_status()
+        self.assertEqual([row["live_id"] for row in result], ["123"])
+        manager.data_service.list_live_rooms.assert_called_once()
+
+    def test_scheduler_uses_snapshot_when_rooms_removed_during_stats_save(self):
+        manager = self.make_manager()
+        room = room_manager_module.MonitoredRoom("123", manager)
+        manager.active_rooms.update({"123": room, "456": room})
+        saved = []
+
+        def save(live_id, **kwargs):
+            with manager.lock:
+                manager.active_rooms.pop("456", None)
+            saved.append(live_id)
+
+        manager.data_service.get_live_room = lambda live_id: SimpleNamespace(status="monitoring")
+        manager.data_service.save_room_stats = save
+        scheduler = SchedulerService(manager, manager.data_service)
+        scheduler._save_stats_snapshot()
+        self.assertEqual(saved, ["123", "456"])
+
+    def test_dedupe_caches_are_bounded_and_reset_in_place(self):
+        room = room_manager_module.MonitoredRoom("123", self.make_manager())
+        trace_cache = room.trace_dedupe
+        with room.data_lock:
+            for index in range(2500):
+                self.assertTrue(room.remember_trace(str(index)))
+                self.assertTrue(room.remember_like(str(index)))
+            self.assertFalse(room.remember_trace("2499"))
+            self.assertFalse(room.remember_like("2499"))
+            self.assertEqual(len(room.trace_dedupe), 2000)
+            self.assertEqual(len(room.trace_dedupe_set), 2000)
+            self.assertEqual(len(room.like_dedupe_set), 2000)
+            self.assertTrue(room.remember_trace("0"))
+            room.gift_user_ids.add("user")
+            room.reset_dedupe()
+        self.assertIs(trace_cache, room.trace_dedupe)
+        self.assertFalse(room.trace_dedupe or room.trace_dedupe_set or room.like_dedupe)
+        self.assertFalse(room.gift_user_ids)
 
     def test_start_can_continue_while_previous_stop_is_still_returning(self):
         manager = self.make_manager()
@@ -687,6 +835,225 @@ class RoomManagerLifecycleTest(unittest.TestCase):
                 self.assertEqual(result["messages"], [])
             finally:
                 data_service.close_session()
+
+
+@pytest.mark.parametrize("status", [True, False, None, "exception"])
+def test_poll_always_closes_temp_fetcher_and_waits_interruptibly(monkeypatch, status):
+    manager = RoomManagerLifecycleTest().make_manager()
+    room = room_manager_module.MonitoredRoom("123", manager)
+    temp = SimpleNamespace(close=Mock(), status_error_message="代理连接异常")
+    temp.anchor_info = {"anchor_name": "anchor", "anchor_id": "42"}
+
+    def get_status():
+        if status == "exception":
+            raise RuntimeError("network failed")
+        return status
+
+    temp.get_room_status = get_status
+    monkeypatch.setattr("crawler.DouyinLiveWebFetcher", lambda *a: temp)
+    waits = []
+
+    def wait(interval):
+        waits.append(interval)
+        room.shutdown_event.set()
+        return True
+
+    monkeypatch.setattr(room.shutdown_event, "wait", wait)
+    # 旧实现用循环 sleep，避免回归测试等上完整轮询间隔。
+    monkeypatch.setattr(room_manager_module.time, "sleep", lambda *a: room.shutdown_event.set())
+    assert room._poll_room_status() is (status is True)
+    temp.close.assert_called_once()
+    if status is True:
+        assert (manager.data_service.room.anchor_name, manager.data_service.room.anchor_id) == ("anchor", "42")
+    else:
+        assert len(waits) == 1
+    if status is None:
+        assert manager.data_service.status_updates[-1][2] == "代理连接异常"
+
+
+@pytest.mark.parametrize("status", [False, None, True])
+def test_monitor_records_connection_time_only_for_live_room_and_closes_session(monkeypatch, status):
+    manager = RoomManagerLifecycleTest().make_manager()
+    room = room_manager_module.MonitoredRoom("123", manager)
+    core = SimpleNamespace(close=Mock())
+    fetcher = SimpleNamespace(
+        _fetcher=core, get_room_status=lambda: status,
+        start=Mock(side_effect=room.shutdown_event.set), current_session_id=None)
+    monkeypatch.setattr("ws_handlers.handlers.WebDouyinLiveFetcher", lambda *a: fetcher)
+
+    def poll():
+        room.shutdown_event.set()
+        return False
+
+    monkeypatch.setattr(room, "_poll_room_status", poll)
+    room._monitor_loop()
+    assert bool(room.last_connect_time) is (status is True)
+    assert any("last_connect_time" in values for _, values in manager.data_service.updated) is (status is True)
+    core.close.assert_called_once()
+
+
+def test_reconnect_uses_interruptible_backoff_with_jitter(monkeypatch):
+    manager = RoomManagerLifecycleTest().make_manager()
+    manager.data_service.room.auto_reconnect = True
+    manager.data_service.update_live_room_reconnect = Mock()
+    room = room_manager_module.MonitoredRoom("123", manager)
+    delays = []
+
+    def wait(delay):
+        delays.append(delay)
+        if len(delays) == 2:
+            room.shutdown_event.set()
+            return True
+        return False
+
+    monkeypatch.setattr(room.shutdown_event, "wait", wait)
+    monkeypatch.setattr(room_manager_module.config, "MONITOR_RECONNECT_DELAY", 10)
+    monkeypatch.setattr(room_manager_module.config, "MONITOR_MAX_RETRIES", 5)
+    monkeypatch.setattr(room_manager_module, "apply_jitter", lambda delay: delay + 1)
+    monkeypatch.setattr(room_manager_module.time, "sleep", lambda *a: room.shutdown_event.set())
+    fetchers = []
+
+    def create(*args):
+        fetcher = SimpleNamespace(
+            _fetcher=SimpleNamespace(close=Mock()), get_room_status=lambda: True,
+            start=Mock(), current_session_id=77)
+        fetchers.append(fetcher)
+        return fetcher
+
+    monkeypatch.setattr("ws_handlers.handlers.WebDouyinLiveFetcher", create)
+    room._monitor_loop()
+    assert delays == [11, 21]
+    assert len(fetchers) == 2
+    assert all(fetcher._fetcher.close.call_count == 1 for fetcher in fetchers)
+
+
+@pytest.mark.parametrize("display", ["manager", "terminal"])
+def test_display_uses_snapshot_taken_before_database_io(display):
+    from utils.status_display import StatusDisplay
+
+    manager = RoomManagerLifecycleTest().make_manager()
+    room = room_manager_module.MonitoredRoom("123", manager)
+    room.update_stats(current_user_count=7, total_income=12)
+    manager.active_rooms["123"] = room
+    manager.data_service.room.anchor_name = "anchor"
+    manager.data_service.room.error_message = None
+
+    def list_rooms():
+        with manager.lock:
+            manager.active_rooms.clear()
+        return [manager.data_service.room]
+
+    manager.data_service.list_live_rooms = list_rooms
+    if display == "manager":
+        rows = manager.get_display_status()
+    else:
+        rows = StatusDisplay(manager)._get_display_data()
+    assert rows[0]["current_user_count"] == 7
+    assert rows[0]["total_income"] == 12
+
+
+def test_rich_display_leaves_first_run_state(monkeypatch):
+    from utils import status_display
+
+    display = status_display.StatusDisplay(RoomManagerLifecycleTest().make_manager())
+    display._rich_mode = True
+    monkeypatch.setattr(display, "_build_table", Mock())
+    live = Mock()
+    context = Mock(__enter__=Mock(return_value=live), __exit__=Mock(return_value=False))
+    monkeypatch.setattr(status_display, "Live", lambda *a, **kw: context)
+    monkeypatch.setattr(display._stop_event, "wait", lambda *a: display._stop_event.set())
+    display._run()
+    live.update.assert_called_once()
+    assert display._first_run is False
+
+
+def test_error_log_rotates_by_size_and_time_and_cleans_expired_logs(tmp_path):
+    import os
+    import time
+    from datetime import timedelta
+    from utils.logger import _ErrorLogRotation, logger
+
+    # 小文件低流量场景也必须触发按天 retention 清理。
+    expired = tmp_path / "error_2000-01-01.log"
+    expired.write_text("old error")
+    old_time = time.time() - 10 * 86400
+    os.utime(expired, (old_time, old_time))
+    rotation = _ErrorLogRotation("1 GB")
+    sink = logger.add(tmp_path / "error_{time:YYYY-MM-DD}.log", rotation=rotation, retention="1 day")
+    try:
+        logger.debug("first error")
+        logger.patch(lambda record: record.update(time=record["time"] + timedelta(days=1))).debug("next day")
+        assert not expired.exists()
+    finally:
+        logger.remove(sink)
+
+    with (tmp_path / "size.log").open("w+") as file:
+        file.write("123456")
+        class LogMessage(str):
+            pass
+
+        message = LogMessage("next")
+        message.record = {"time": datetime.now().astimezone()}
+        assert _ErrorLogRotation("5 B")(message, file) is True
+
+
+def test_dedupe_survives_monitor_restart_and_handles_concurrent_replay(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    room = room_manager_module.MonitoredRoom("123", RoomManagerLifecycleTest().make_manager())
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        assert sum(executor.map(room.remember_trace, ["same trace"] * 100)) == 1
+    room.remember_like("like")
+    room.gift_user_ids.add("user")
+    monkeypatch.setattr(room, "_monitor_loop", lambda: None)
+    room.start()
+    room.thread.join(timeout=1)
+    assert room.remember_trace("same trace") is False
+    assert room.remember_like("like") is False
+    assert room.gift_user_ids == {"user"}
+
+
+def test_daily_backup_registration_is_deferred_and_replaceable():
+    manager = RoomManagerLifecycleTest().make_manager()
+    service = SchedulerService(manager, manager.data_service)
+    backup_calls = []
+
+    def backup():
+        backup_calls.append(True)
+
+    service.scheduler.start(paused=True)
+    try:
+        service.register_daily_backup(backup)
+        job = service.register_daily_backup(backup)
+        assert [item.id for item in service.get_jobs()] == ['daily_database_backup']
+        assert "hour='4'" in str(job.trigger)
+        assert "minute='30'" in str(job.trigger)
+        assert backup_calls == []
+    finally:
+        service.scheduler.shutdown()
+
+
+@pytest.mark.parametrize("ended", [False, True])
+def test_disconnect_without_session_only_skips_backoff_for_confirmed_end(monkeypatch, ended):
+    manager = RoomManagerLifecycleTest().make_manager()
+    manager.data_service.room.auto_reconnect = True
+    manager.data_service.update_live_room_reconnect = Mock()
+    room = room_manager_module.MonitoredRoom("123", manager)
+
+    def start():
+        if ended:
+            manager.data_service.update_live_room_status("123", "stopped")
+
+    fetcher = SimpleNamespace(_fetcher=SimpleNamespace(close=Mock()),
+                              get_room_status=lambda: True, start=start, current_session_id=None)
+    monkeypatch.setattr("ws_handlers.handlers.WebDouyinLiveFetcher", lambda *a: fetcher)
+    poll = Mock(side_effect=lambda: (room.shutdown_event.set(), False)[1])
+    monkeypatch.setattr(room, "_poll_room_status", poll)
+    wait = Mock(side_effect=lambda *a: (room.shutdown_event.set(), True)[1])
+    monkeypatch.setattr(room.shutdown_event, "wait", wait)
+    room._monitor_loop()
+    assert poll.call_count == int(ended)
+    assert wait.call_count == int(not ended)
 
 
 if __name__ == "__main__":

@@ -2,10 +2,14 @@
 调度服务
 后台定时任务调度
 """
+import os
+import subprocess
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 import config
+from models.database import CHINA_TZ
 from services.data_service import DataService
 from services.room_manager import RoomManager
 from utils.logger import get_logger
@@ -67,6 +71,7 @@ class SchedulerService:
             name='自动启动24小时监控房间'
         )
 
+        self.register_configured_backup()
         self.scheduler.start()
         logger.info("调度器已启动")
 
@@ -88,7 +93,9 @@ class SchedulerService:
         """保存统计快照到数据库"""
         try:
             saved_count = 0
-            for room_id, monitored_room in self.room_manager.active_rooms.items():
+            with self.room_manager.lock:
+                active_rooms = list(self.room_manager.active_rooms.items())
+            for room_id, monitored_room in active_rooms:
                 # 只保存正在监控的房间
                 room = self.data_service.get_live_room(room_id)
                 if room and room.status == 'monitoring':
@@ -129,10 +136,12 @@ class SchedulerService:
         try:
             rooms_24h = self.data_service.get_24h_monitor_rooms()
             started_count = 0
+            with self.room_manager.lock:
+                active_rooms = self.room_manager.active_rooms.copy()
 
             for room in rooms_24h:
                 # 检查是否已在活跃列表中
-                if room.live_id not in self.room_manager.active_rooms:
+                if room.live_id not in active_rooms:
                     # 添加到管理器
                     room_id = self.room_manager.add_room(
                         room.live_id,
@@ -146,7 +155,7 @@ class SchedulerService:
                             logger.info(f"自动启动24小时监控: {room.live_id}")
                 else:
                     # 已在列表中，确保正在运行
-                    monitored_room = self.room_manager.active_rooms[room.live_id]
+                    monitored_room = active_rooms[room.live_id]
                     if not monitored_room.thread or not monitored_room.thread.is_alive():
                         if self.room_manager.start_room(room.live_id):
                             started_count += 1
@@ -177,8 +186,32 @@ class SchedulerService:
                 **kwargs
             )
             logger.info(f"添加定时任务: {job_name}, 间隔: {seconds}秒")
+        elif trigger in ('cron', 'date'):
+            return self.scheduler.add_job(func, trigger, id=job_id, name=job_name, **kwargs)
         else:
             logger.warning(f"暂不支持 {trigger} 类型的触发器")
+
+    def register_configured_backup(self):
+        """Defer app backup registration until scheduler startup; honor the runtime switch."""
+        if (os.getenv('AUTO_DB_BACKUP_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+                and self.scheduler.get_job('daily_database_backup') is None):
+            return self.register_daily_backup(self._run_database_backup)
+        return None
+
+    def _run_database_backup(self):
+        try:
+            subprocess.run(['bash', str(config.BASE_DIR / 'scripts' / 'backup_db.sh')],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=3600)
+            logger.info('每日数据库热备完成')
+        except (subprocess.SubprocessError, OSError):
+            logger.error('每日数据库热备失败')
+
+    def register_daily_backup(self, func, hour: int = 4, minute: int = 30):
+        """注册可替换的每日热备任务，注册时不执行。"""
+        return self.add_job(func, 'cron', hour=hour, minute=minute,
+                            id='daily_database_backup', name='每日数据库热备',
+                            timezone=CHINA_TZ, replace_existing=True)
 
     def remove_job(self, job_id: str):
         """移除定时任务"""

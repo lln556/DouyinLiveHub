@@ -30,7 +30,7 @@ def test_same_user_collapses_chat_and_gift_into_one_row(api_client, factories):
     user = body["users"][0]
     assert user["user_id"] == "u_aggr"
     assert user["chat_count"] == 3
-    assert user["gift_count"] == 2
+    assert user["gift_count"] == 104
     assert user["total_messages"] == 5
     assert user["total_value"] == 5 * 10 + 99 * 1  # 50 + 99 = 149
     assert user["nickname"] == "张三"
@@ -86,3 +86,32 @@ def test_no_match_returns_empty_list(api_client, factories):
     body = resp.json()
     assert body["total"] == 0
     assert body["users"] == []
+
+
+@pytest.mark.parametrize('keyword', ['%', '_', '\\'])
+def test_search_escapes_literal_wildcards(api_client, factories, keyword):
+    from urllib.parse import quote
+    factories.room(live_id='literal-search')
+    factories.chat(live_id='literal-search', user_id='exact', user_name='literal' + keyword, content='hi')
+    factories.chat(live_id='literal-search', user_id='other', user_name='unrelated', content='hi')
+    response = api_client.get('/api/rooms/literal-search/user-search?user_name=' + quote(keyword, safe=''))
+    assert response.status == 200
+    assert [row['user_id'] for row in response.json()['users']] == ['exact']
+
+
+def test_contributor_page_queries_are_bounded_mysql(api_client, factories, data_service):
+    from sqlalchemy import event
+    factories.room(live_id='query-bounded')
+    for i in range(20):
+        factories.gift(live_id='query-bounded', user_id=f'u{i}', user_name='test', gift_count=4)
+        factories.chat(live_id='query-bounded', user_id=f'u{i}', user_name='test')
+    sql = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        sql.append(statement)
+    event.listen(data_service.engine, 'before_cursor_execute', capture)
+    try:
+        result = data_service.get_contributors_by_date_range('query-bounded', page_size=20)
+    finally:
+        event.remove(data_service.engine, 'before_cursor_execute', capture)
+    assert len(sql) <= 8
+    assert all(r['gift_count'] == 4 for r in result['contributors'])

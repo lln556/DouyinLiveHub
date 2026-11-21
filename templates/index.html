@@ -6,8 +6,8 @@
     <title>抖音直播记录站</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico">
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14"></script>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="/static/vendor/vue.min.js"></script>
+    <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
     <style>
         :root {
             --ink: #18211f;
@@ -420,6 +420,12 @@
             line-height: 1.35;
         }
 
+        .status-note.is-warning {
+            border-color: #f3dba2;
+            background: var(--amber-soft);
+            color: #7d4900;
+        }
+
         .status-note.is-danger {
             border-color: #f2c4c7;
             background: var(--danger-soft);
@@ -808,7 +814,7 @@
         <div v-if="cookieHealth.status === 'dead'" v-cloak
              class="bg-red-600 text-white text-sm font-medium px-4 py-3 rounded-lg mb-4 flex items-center justify-between">
             <span>⚠️ 抖音 Cookie 已失活，礼物数据可能缺失，请更新 Cookie</span>
-            <button @click="openCookieModal" class="underline font-bold ml-4 shrink-0">立即更新</button>
+            <button @click="openCookieModal" class="underline font-bold ml-4 flex-shrink-0">立即更新</button>
         </div>
         <!-- 头部 -->
         <header class="command-panel">
@@ -850,9 +856,11 @@
                 <a href="/history" class="ui-btn ui-btn-blue">
                     归档管理
                 </a>
-                <a href="/logout" class="ui-btn ui-btn-slate">
-                    退出登录
-                </a>
+                <form method="post" action="/logout" class="inline-flex">
+                    <button type="submit" class="ui-btn ui-btn-slate w-full">
+                        退出登录
+                    </button>
+                </form>
             </nav>
         </header>
 
@@ -950,18 +958,21 @@
                                     <button
                                         v-if="!getIsMonitoring(room)"
                                         @click="startRoom(room.live_id)"
-                                        class="link-action is-start">
+                                        :disabled="isRoomBusy(room.live_id)"
+                                        class="link-action is-start disabled:opacity-50">
                                         启动
                                     </button>
                                     <button
                                         v-if="getIsMonitoring(room)"
                                         @click="stopRoom(room.live_id)"
-                                        class="link-action is-stop">
+                                        :disabled="isRoomBusy(room.live_id)"
+                                        class="link-action is-stop disabled:opacity-50">
                                         停止
                                     </button>
                                     <button
                                         @click="archiveRoom(room.live_id)"
-                                        class="link-action is-danger">
+                                        :disabled="isRoomBusy(room.live_id)"
+                                        class="link-action is-danger disabled:opacity-50">
                                         归档
                                     </button>
                                 </div>
@@ -1000,18 +1011,21 @@
                         <button
                             v-if="!getIsMonitoring(room)"
                             @click="startRoom(room.live_id)"
-                            class="mobile-action">
+                            :disabled="isRoomBusy(room.live_id)"
+                            class="mobile-action disabled:opacity-50">
                             启动
                         </button>
                         <button
                             v-if="getIsMonitoring(room)"
                             @click="stopRoom(room.live_id)"
-                            class="mobile-action">
+                            :disabled="isRoomBusy(room.live_id)"
+                            class="mobile-action disabled:opacity-50">
                             停止
                         </button>
                         <button
                             @click="archiveRoom(room.live_id)"
-                            class="mobile-action is-danger">
+                            :disabled="isRoomBusy(room.live_id)"
+                            class="mobile-action is-danger disabled:opacity-50">
                             归档
                         </button>
                     </div>
@@ -1020,7 +1034,7 @@
         </section>
 
         <!-- 添加房间模态框 -->
-        <div v-if="showAddModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div v-if="showAddModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" @click.self="closeAddModal">
             <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-md">
                 <div class="px-6 py-4 border-b">
                     <h3 class="text-lg font-bold">添加直播间</h3>
@@ -1029,7 +1043,8 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">房间ID或抖音号</label>
                         <input
-                            v-model="newRoom.live_id"
+                            v-model.trim="newRoom.live_id"
+                            @keyup.enter="addRoom"
                             type="text"
                             placeholder="支持纯数字房间号或抖音号（可含 _ . - 等符号）"
                             class="w-full px-3 py-2 border rounded-lg transition-all duration-200 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
@@ -1054,20 +1069,22 @@
                 <div class="px-6 py-4 border-t flex justify-end space-x-3">
                     <button
                         @click="closeAddModal"
-                        class="px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
+                        :disabled="addingRoom"
+                        class="px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-50">
                         取消
                     </button>
                     <button
                         @click="addRoom"
-                        class="px-4 py-2 bg-blue-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 hover:bg-blue-600 hover:shadow-md active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2">
-                        添加
+                        :disabled="addingRoom"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 hover:bg-blue-600 disabled:bg-blue-300 hover:shadow-md active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2">
+                        <span v-text="addingRoom ? '添加中...' : '添加'"></span>
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- 代理设置模态框 -->
-        <div v-if="showProxyModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div v-if="showProxyModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" @click.self="closeProxyModal">
             <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-md">
                 <div class="px-6 py-4 border-b">
                     <h3 class="text-lg font-bold">代理设置</h3>
@@ -1094,7 +1111,7 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">代理地址</label>
                             <input
-                                v-model="proxy.host"
+                                v-model.trim="proxy.host"
                                 type="text"
                                 placeholder="127.0.0.1"
                                 class="w-full px-3 py-2 border rounded-lg transition-all duration-200 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200">
@@ -1104,31 +1121,35 @@
                             <input
                                 v-model.number="proxy.port"
                                 type="number"
+                                min="1"
+                                max="65535"
                                 placeholder="7890"
                                 class="w-full px-3 py-2 border rounded-lg transition-all duration-200 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200">
                         </div>
                         <div class="text-xs text-gray-500 bg-yellow-50 p-2 rounded">
-                            注意：修改代理配置后，需要重启已接入直播间才能生效
+                            注意：代理配置仅在当前运行时生效（立即用于后续新建连接与测活）；已连接房间需重启监控后生效。
                         </div>
                     </div>
                 </div>
                 <div class="px-6 py-4 border-t flex justify-end space-x-3">
                     <button
                         @click="closeProxyModal"
-                        class="px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
+                        :disabled="savingProxy"
+                        class="px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-50">
                         取消
                     </button>
                     <button
                         @click="updateProxyConfig"
-                        class="px-4 py-2 bg-purple-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 hover:bg-purple-600 hover:shadow-md active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2">
-                        保存
+                        :disabled="savingProxy"
+                        class="px-4 py-2 bg-purple-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 hover:bg-purple-600 disabled:bg-purple-300 hover:shadow-md active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2">
+                        <span v-text="savingProxy ? '保存中...' : '保存'"></span>
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- Cookie设置模态框 -->
-        <div v-if="showCookieModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div v-if="showCookieModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" @click.self="closeCookieModal">
             <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-2xl">
                 <div class="px-6 py-4 border-b">
                     <h3 class="text-lg font-bold">抖音 Cookie 设置</h3>
@@ -1173,13 +1194,15 @@
                 <div class="px-6 py-4 border-t flex justify-between">
                     <button
                         @click="clearCookieConfig"
-                        class="px-4 py-2 border border-red-200 text-red-600 rounded-lg font-medium transition-all duration-200 hover:bg-red-50 active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2">
+                        :disabled="cookieSaving"
+                        class="px-4 py-2 border border-red-200 text-red-600 rounded-lg font-medium transition-all duration-200 hover:bg-red-50 active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 disabled:opacity-50">
                         清空 Cookie
                     </button>
                     <div class="flex space-x-3">
                         <button
                             @click="closeCookieModal"
-                            class="px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
+                            :disabled="cookieSaving"
+                            class="px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-50">
                             取消
                         </button>
                         <button
@@ -1189,47 +1212,6 @@
                             <span v-text="cookieSaving ? '保存中...' : '保存并应用'"></span>
                         </button>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 房间信息模态框 -->
-        <div v-if="showEditModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-md">
-                <div class="px-6 py-4 border-b">
-                    <h3 class="text-lg font-bold">房间信息</h3>
-                </div>
-                <div class="px-6 py-4 space-y-4">
-                    <div class="bg-gray-50 p-4 rounded-lg space-y-2">
-                        <div class="flex justify-between">
-                            <span class="text-sm text-gray-600">直播间ID:</span>
-                            <span class="text-sm font-medium" v-text="editRoom.live_id"></span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-sm text-gray-600">主播:</span>
-                            <span class="text-sm font-medium" v-text="editRoom.anchor_name || '未知'"></span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-sm text-gray-600">运行状态:</span>
-                            <span :class="['text-xs px-2 py-1 rounded-full', getMonitorStatusClass(editRoom)]" v-text="getMonitorStatusText(editRoom)"></span>
-                        </div>
-                    </div>
-                    <div class="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
-                        <div class="font-medium mb-1">运行模式说明：</div>
-                        <ul class="list-disc list-inside text-xs space-y-1">
-                            <li>开播时自动接入</li>
-                            <li>未开播时自动轮询等待</li>
-                            <li>关播后继续等待下次开播</li>
-                            <li>需手动停止</li>
-                        </ul>
-                    </div>
-                </div>
-                <div class="px-6 py-4 border-t flex justify-end">
-                    <button
-                        @click="closeEditModal"
-                        class="px-4 py-2 bg-gray-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 hover:bg-gray-600 hover:shadow-md active:scale-95 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
-                        关闭
-                    </button>
                 </div>
             </div>
         </div>

@@ -55,12 +55,20 @@ def probe_douyin_cookie(cookie: str, proxies: Optional[dict] = None) -> CookiePr
     except ValueError:
         return CookieProbeResult('inconclusive', '响应不是有效 JSON')
 
+    if not isinstance(payload, dict) or 'status_code' not in payload:
+        return CookieProbeResult('inconclusive', '响应缺少登录态判定字段')
+
     status_code = payload.get('status_code')
     user = payload.get('data') or {}
+    if not isinstance(user, dict):
+        return CookieProbeResult('inconclusive', '响应用户信息格式异常')
     user_id = str(user.get('id_str') or '')
     if status_code == 0 and user_id not in ('', '0'):
         return CookieProbeResult('alive', f'登录用户 id={user_id}')
-    return CookieProbeResult('dead', f'未检测到登录态 (status_code={status_code})')
+    # 20003 已经由自检接口实测确认为未登录；8 保留既有判定兼容。
+    if status_code in (0, 8, 20003):
+        return CookieProbeResult('dead', f'未检测到登录态 (status_code={status_code})')
+    return CookieProbeResult('inconclusive', f'无法判定登录态 (status_code={status_code})')
 
 
 class CookieHealthService:
@@ -72,7 +80,8 @@ class CookieHealthService:
     def __init__(self, room_manager, data_service):
         self.room_manager = room_manager
         self.data_service = data_service
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._probe_lock = threading.Lock()  # 串行探测，避免并发结果打乱防抖计数
         self.status = 'unknown' if config.DOUYIN_COOKIE else 'unconfigured'
         self.last_check_time = None
         self.last_ok_time = None
@@ -80,16 +89,18 @@ class CookieHealthService:
         self.last_trigger = None
         self.fail_count = 0
         self._last_probe_at = None  # time.time()，tick 调度与被动信号限流用
+        self._recovery_pending = False
 
     def snapshot(self) -> dict:
         """当前健康状态快照（API 返回值）。"""
-        return {
-            'status': self.status,
-            'last_check_time': self.last_check_time,
-            'last_ok_time': self.last_ok_time,
-            'last_error': self.last_error,
-            'trigger': self.last_trigger,
-        }
+        with self._lock:
+            return {
+                'status': self.status,
+                'last_check_time': self.last_check_time,
+                'last_ok_time': self.last_ok_time,
+                'last_error': self.last_error,
+                'trigger': self.last_trigger,
+            }
 
     def run_probe(self, trigger: str, skip_debounce: bool = False) -> dict:
         """
@@ -97,56 +108,66 @@ class CookieHealthService:
         :param trigger: scheduled / passive / manual / cookie_updated
         :param skip_debounce: True 时单次明确未登录即判 dead（人工确认场景）
         """
-        with self._lock:
-            cookie = config.DOUYIN_COOKIE
-            if not cookie:
-                self._set_unconfigured()
-                return self.snapshot()
-
-            self._last_probe_at = time.time()
+        with self._probe_lock:
+            with self._lock:
+                cookie = config.DOUYIN_COOKIE
+                if not cookie:
+                    self._set_unconfigured()
+                    return self.snapshot()
+                self._last_probe_at = time.time()
+            # 状态锁不跨越阻塞网络 I/O，snapshot 和 tick 仍然可以及时返回。
             result = probe_douyin_cookie(cookie, config.get_proxy_config())
             now_str = get_china_now().strftime('%Y-%m-%d %H:%M:%S')
-            self.last_check_time = now_str
-            self.last_trigger = trigger
             logger.info(f"Cookie 探测完成: trigger={trigger}, outcome={result.outcome}, detail={result.detail}")
-
-            if result.outcome == 'alive':
-                self.fail_count = 0
-                self.last_error = None
-                self.last_ok_time = now_str
-                self._transition('healthy', trigger, result.detail)
-            elif result.outcome == 'dead':
-                self.fail_count += 1
-                self.last_error = result.detail
-                if skip_debounce or self.fail_count >= 2:
-                    self._transition('dead', trigger, result.detail)
-                else:
-                    self._transition('suspect', trigger, result.detail)
-            else:  # inconclusive: 不可作为失活证据，只记录错误
-                self.last_error = result.detail
-            return self.snapshot()
+            with self._lock:
+                if cookie != config.DOUYIN_COOKIE:
+                    if not config.DOUYIN_COOKIE:
+                        self._set_unconfigured()
+                    return self.snapshot()
+                self.last_check_time = now_str
+                self.last_trigger = trigger
+                if result.outcome == 'alive':
+                    self.fail_count = 0
+                    self.last_error = None
+                    self.last_ok_time = now_str
+                    self._transition('healthy', trigger, result.detail)
+                elif result.outcome == 'dead':
+                    self.fail_count += 1
+                    self.last_error = result.detail
+                    if skip_debounce or self.fail_count >= 2:
+                        self._transition('dead', trigger, result.detail)
+                    else:
+                        self._transition('suspect', trigger, result.detail)
+                else:  # inconclusive: 不可作为失活证据，只记录错误
+                    self.last_error = result.detail
+                return self.snapshot()
 
     def _set_unconfigured(self):
-        self.status = 'unconfigured'
-        self.fail_count = 0
-        self.last_error = None
+        with self._lock:
+            self._recovery_pending = self._recovery_pending or self.status == 'dead'
+            self.status = 'unconfigured'
+            self.fail_count = 0
+            self.last_error = None
 
     def _transition(self, new_status: str, trigger: str, detail: str):
         """状态切换；跨越 dead 边界时写全局系统事件。"""
-        old = self.status
-        if old == new_status:
-            return
-        self.status = new_status
-        if new_status == 'dead':
-            self.data_service.log_system_event(
-                None, 'cookie_dead',
-                message=f'抖音 Cookie 已失活（触发: {trigger}）: {detail}')
-            logger.warning(f"抖音 Cookie 已失活: {detail}")
-        elif old == 'dead' and new_status == 'healthy':
-            self.data_service.log_system_event(
-                None, 'cookie_recovered',
-                message=f'抖音 Cookie 已恢复（触发: {trigger}）')
-            logger.info("抖音 Cookie 已恢复")
+        with self._lock:
+            old = self.status
+            if old == new_status:
+                return
+            self.status = new_status
+            if new_status == 'dead':
+                self._recovery_pending = True
+                self.data_service.log_system_event(
+                    None, 'cookie_dead',
+                    message=f'抖音 Cookie 已失活（触发: {trigger}）: {detail}')
+                logger.warning(f"抖音 Cookie 已失活: {detail}")
+            elif new_status == 'healthy' and self._recovery_pending:
+                self.data_service.log_system_event(
+                    None, 'cookie_recovered',
+                    message=f'抖音 Cookie 已恢复（触发: {trigger}）')
+                self._recovery_pending = False
+                logger.info("抖音 Cookie 已恢复")
 
     def _passive_signal_hit(self) -> bool:
         """
@@ -155,7 +176,9 @@ class CookieHealthService:
         """
         now = time.time()
         hit = False
-        for monitored_room in list(self.room_manager.active_rooms.values()):
+        with self.room_manager.lock:
+            rooms = list(self.room_manager.active_rooms.values())
+        for monitored_room in rooms:
             fetcher = getattr(monitored_room, 'fetcher', None)
             if fetcher is None:
                 continue
@@ -173,18 +196,21 @@ class CookieHealthService:
     def tick(self):
         """定时入口（APScheduler 每 COOKIE_HEALTH_TICK_INTERVAL 秒调用一次）。"""
         try:
-            if not config.DOUYIN_COOKIE:
-                if self.status != 'unconfigured':
+            with self._lock:
+                if not config.DOUYIN_COOKIE:
                     self._set_unconfigured()
-                return
-            now = time.time()
-            probe_due = (self._last_probe_at is None
-                         or now - self._last_probe_at >= config.COOKIE_HEALTH_CHECK_INTERVAL)
-            passive_allowed = (self._last_probe_at is None
-                               or now - self._last_probe_at >= PASSIVE_PROBE_MIN_INTERVAL)
+                    return
+                interval = config.COOKIE_HEALTH_CHECK_INTERVAL
+                if interval <= 0:
+                    return
+                now = time.time()
+                probe_due = (self._last_probe_at is None
+                             or now - self._last_probe_at >= interval)
+                passive_allowed = (self._last_probe_at is None
+                                   or now - self._last_probe_at >= PASSIVE_PROBE_MIN_INTERVAL)
             if passive_allowed and self._passive_signal_hit():
                 self.run_probe(trigger='passive')
-            elif config.COOKIE_HEALTH_CHECK_INTERVAL > 0 and probe_due:
+            elif probe_due:
                 self.run_probe(trigger='scheduled')
         except Exception as e:
             logger.error(f"Cookie 健康检查 tick 出错: {e}")

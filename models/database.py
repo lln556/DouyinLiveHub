@@ -26,7 +26,7 @@ class LiveRoom(Base):
 
     live_id = Column(String(50), primary_key=True, comment='直播间ID')
     anchor_name = Column(String(100), nullable=False, comment='主播名称')
-    anchor_id = Column(String(50), nullable=True, comment='主播ID')
+    anchor_id = Column(String(50), nullable=True, index=True, comment='主播ID')
     status = Column(String(20), nullable=False, default='stopped', comment='监控状态: monitoring/stopped/offline/error/archived')
     monitor_type = Column(String(10), nullable=False, default='manual', comment='监控类型: 24h/manual')
     auto_reconnect = Column(Boolean, nullable=False, default=False, comment='是否自动重连')
@@ -71,6 +71,8 @@ class ChatMessage(Base):
     # 索引
     __table_args__ = (
         Index('idx_chat_room_time', 'live_id', 'created_at'),
+        Index('idx_chat_session_time', 'live_session_id', 'created_at'),
+        Index('idx_chat_user_time', 'user_id', 'created_at'),
     )
 
     def __repr__(self):
@@ -105,6 +107,7 @@ class GiftMessage(Base):
     # 索引
     __table_args__ = (
         Index('idx_gift_room_time', 'live_id', 'created_at'),
+        Index('idx_gift_session_time', 'live_session_id', 'created_at'),
         Index('idx_gift_user', 'user_id', 'created_at'),
     )
 
@@ -168,6 +171,8 @@ class UserContribution(Base):
     __table_args__ = (
         UniqueConstraint('live_id', 'user_id', name='uq_room_user'),
         Index('idx_contribution_score', 'live_id', 'total_score'),
+        Index('idx_contribution_total_score', 'total_score'),
+        Index('idx_contribution_room_likes', 'live_id', 'like_count'),
     )
 
     def __repr__(self):

@@ -9,20 +9,18 @@
 """
 抖音直播核心爬虫类
 """
-import codecs
 import gzip
 import hashlib
+import json
 import os
+import queue
 import random
 import re
 import string
-import subprocess
 import threading
 import time
-import execjs
 import urllib.parse
-from contextlib import contextmanager
-from unittest.mock import patch
+from functools import lru_cache
 
 import requests
 import websocket
@@ -37,31 +35,144 @@ import config
 
 # 获取JS文件路径（相对于crawler模块）
 JS_DIR = os.path.join(os.path.dirname(__file__), 'js')
+_JS_SOURCES = {}
+for _js_name in ('a_bogus.js', 'sign.js'):
+    _js_path = os.path.join(JS_DIR, _js_name)
+    with open(_js_path, 'r', encoding='utf-8') as _js_file:
+        _JS_SOURCES[_js_path] = _js_file.read()
+_JS_CONTEXTS = threading.local()
+_JS_LOCK = threading.Lock()
+_JS_GENERATIONS = {}
+_JS_QUEUE = queue.Queue()
+_JS_WORKER_THREAD = None
+# Retained so V8/PartitionAlloc isolates are never finalized on arbitrary GC threads.
+_RETIRED_JS_CONTEXTS = []
+
+
+@lru_cache(maxsize=16)
+def _read_js_source(js_file: str) -> str:
+    if js_file in _JS_SOURCES:
+        return _JS_SOURCES[js_file]
+    with open(js_file, 'r', encoding='utf-8') as file:
+        return file.read()
+
+
+def _js_worker_loop():
+    """在单一专用线程内串行创建并复用 MiniRacer，避免 V8 多线程 PartitionAlloc 崩溃。"""
+    ctxs = {}
+
+    def _get_or_create(js_file: str, generation: int):
+        key = (js_file, generation)
+        ctx = ctxs.get(key)
+        if ctx is not None:
+            return ctx
+        for old_key in [k for k in ctxs if k[0] == js_file and k[1] != generation]:
+            _RETIRED_JS_CONTEXTS.append(ctxs.pop(old_key))
+        ctx = MiniRacer()
+        try:
+            ctx.eval(_read_js_source(js_file))
+        except Exception:
+            _RETIRED_JS_CONTEXTS.append(ctx)
+            raise
+        ctxs[key] = ctx
+        return ctx
+
+    while True:
+        js_file, generation, op, payload, resp_queue = _JS_QUEUE.get()
+        try:
+            ctx = _get_or_create(js_file, generation)
+            if op == 'init':
+                resp_queue.put((True, None))
+            elif op == 'call':
+                fn, args = payload
+                resp_queue.put((True, ctx.call(fn, *args)))
+            elif op == 'eval':
+                resp_queue.put((True, ctx.eval(payload)))
+            else:
+                raise ValueError(f'未知 JS 操作: {op}')
+        except Exception as exc:
+            bad = ctxs.pop((js_file, generation), None)
+            if bad is not None:
+                _RETIRED_JS_CONTEXTS.append(bad)
+            resp_queue.put((False, exc))
+
+
+def _ensure_js_worker():
+    global _JS_WORKER_THREAD
+    with _JS_LOCK:
+        if _JS_WORKER_THREAD is None or not _JS_WORKER_THREAD.is_alive():
+            worker = threading.Thread(
+                target=_js_worker_loop,
+                name='mini-racer-worker',
+                daemon=True,
+            )
+            worker.start()
+            _JS_WORKER_THREAD = worker
+
+
+def _dispatch_js(js_file: str, generation: int, op: str, payload=None):
+    _ensure_js_worker()
+    resp_queue = queue.Queue(maxsize=1)
+    _JS_QUEUE.put((js_file, generation, op, payload, resp_queue))
+    ok, result = resp_queue.get()
+    if not ok:
+        raise result
+    return result
+
+
+class _JsContextProxy:
+    """暴露与 MiniRacer 兼容的 call/eval 接口，内部转发至单一 V8 工作线程。"""
+
+    def __init__(self, js_file: str, generation: int):
+        self.js_file = js_file
+        self.generation = generation
+
+    def call(self, function: str, *args):
+        return _dispatch_js(self.js_file, self.generation, 'call', (function, args))
+
+    def eval(self, code: str):
+        return _dispatch_js(self.js_file, self.generation, 'eval', code)
 
 
 def execute_js(js_file: str):
-    """
-    执行 JavaScript 文件
-    :param js_file: JavaScript 文件路径
-    :return: 执行结果
-    """
-    with open(js_file, 'r', encoding='utf-8') as file:
-        js_code = file.read()
+    """兼容原入口，按线程和脚本返回固定代理并在单一 V8 线程内复用上下文。"""
+    js_file = os.path.abspath(js_file)
+    with _JS_LOCK:
+        generation = _JS_GENERATIONS.get(js_file, 0)
+    contexts = getattr(_JS_CONTEXTS, 'contexts', None)
+    if contexts is None:
+        contexts = _JS_CONTEXTS.contexts = {}
+    proxy = contexts.get(js_file)
+    if proxy is None or proxy.generation != generation:
+        _dispatch_js(js_file, generation, 'init')
+        proxy = _JsContextProxy(js_file, generation)
+        contexts[js_file] = proxy
+    return proxy
 
-    ctx = execjs.compile(js_code)
-    return ctx
+
+def _call_js(js_file: str, function: str, *args):
+    abs_path = os.path.abspath(js_file)
+    try:
+        return execute_js(js_file).call(function, *args)
+    except Exception:
+        with _JS_LOCK:
+            _JS_GENERATIONS[abs_path] = _JS_GENERATIONS.get(abs_path, 0) + 1
+        contexts = getattr(_JS_CONTEXTS, 'contexts', None)
+        if isinstance(contexts, dict):
+            contexts.pop(abs_path, None)
+        raise
 
 
-@contextmanager
-def patched_popen_encoding(encoding='utf-8'):
-    original_popen_init = subprocess.Popen.__init__
-
-    def new_popen_init(self, *args, **kwargs):
-        kwargs['encoding'] = encoding
-        original_popen_init(self, *args, **kwargs)
-
-    with patch.object(subprocess.Popen, '__init__', new_popen_init):
-        yield
+def decompress_push_frame_payload(package) -> bytes:
+    """兼容 gzip 和未压缩 Protobuf，空载荷不参与解压。"""
+    payload = bytes(package.payload or b'')
+    if not payload:
+        return b''
+    compressed = payload[:2] == b'\x1f\x8b' or any(
+        header.key == 'compress_type' and header.value == 'gzip'
+        for header in package.headers_list
+    )
+    return gzip.decompress(payload) if compressed else payload
 
 
 def generateSignature(wss, script_file=None):
@@ -85,18 +196,15 @@ def generateSignature(wss, script_file=None):
     md5.update(param.encode())
     md5_param = md5.hexdigest()
 
-    with codecs.open(script_file, 'r', encoding='utf8') as f:
-        script = f.read()
-
-    ctx = MiniRacer()
-    ctx.eval(script)
-
     try:
-        signature = ctx.call("get_sign", md5_param)
+        signature = _call_js(script_file, "get_sign", md5_param)
+        if not signature:
+            raise ValueError("WebSocket 签名生成结果为空")
         return signature
     except Exception as e:
         log = get_logger("signature")
         log.error(f"签名生成失败: {e}")
+        raise
 
 
 def generateMsToken(length=182):
@@ -234,7 +342,22 @@ class DouyinLiveWebFetcher:
         self._connectWebSocket()
 
     def stop(self):
-        self.ws.close()
+        self._stop_websocket_watchdog()
+        ws = self.ws
+        if ws is None:
+            return
+        sock = getattr(ws, 'sock', None)
+        try:
+            if sock is not None:
+                sock.close()
+        except Exception as e:
+            self.log.debug(f"关闭底层 socket 失败（已忽略）: {e}")
+        finally:
+            ws.close()
+
+    def close(self):
+        """释放 HTTP Session 及其连接池。"""
+        self.session.close()
 
     def update_log_context(self, anchor_name: str = None):
         """
@@ -401,31 +524,25 @@ class DouyinLiveWebFetcher:
             self.log.error(f"从 HTML 获取主播信息失败: {err}")
             return {'anchor_name': None, 'anchor_id': None}
         else:
-            # 尝试多种模式匹配主播名字
             anchor_name = None
             anchor_id = None
+            decoder = json.JSONDecoder()
+            # 页面可能嵌套序列化 JSON；仅定位 owner 对象，再解析其直接字段。
+            for source in (response.text, response.text.replace(r'\"', '"')):
+                for match in re.finditer(r'"owner"\s*:\s*(\{)', source):
+                    try:
+                        owner, _ = decoder.raw_decode(source, match.start(1))
+                    except ValueError:
+                        continue
+                    anchor_name = owner.get('nickname')
+                    owner_id = owner.get('id_str') or owner.get('id')
+                    anchor_id = str(owner_id) if owner_id is not None else None
+                    if anchor_name or anchor_id:
+                        break
+                if anchor_name or anchor_id:
+                    break
 
-            # 模式1: owner.nickname
-            match1 = re.search(r'"nickname":"([^"]+)"', response.text)
-            if match1:
-                anchor_name = match1.group(1)
-
-            # 模式2: owner.webcast.restaurantName (有时有转义)
-            match2 = re.search(r'owner\\":\\{.*?nickname\\":\\"([^\\]+)\\"', response.text)
-            if match2:
-                anchor_name = match2.group(1)
-
-            # 模式3: roomInfo.owner.nickname
-            match3 = re.search(r'owner.*?"nickname":"([^"]+)"', response.text)
-            if match3:
-                anchor_name = match3.group(1)
-
-            # 尝试获取anchor_id
-            anchor_match = re.search(r'"id":"(\d+)"', response.text)
-            if anchor_match:
-                anchor_id = anchor_match.group(1)
-
-            if anchor_name:
+            if anchor_name or anchor_id:
                 # 缓存主播信息
                 if not self._cached_anchor_name:
                     self._cached_anchor_name = anchor_name
@@ -454,9 +571,7 @@ class DouyinLiveWebFetcher:
         获取 a_bogus
         """
         url = urllib.parse.urlencode(url_params)
-        ctx = execute_js(self.abogus_file)
-        _a_bogus = ctx.call("get_ab", url, self.user_agent)
-        return _a_bogus
+        return _call_js(self.abogus_file, "get_ab", url, self.user_agent)
 
     def get_room_status(self):
         """
@@ -501,36 +616,40 @@ class DouyinLiveWebFetcher:
                 'Referer': f'https://live.douyin.com/{self.live_id}',
             })
             resp = self.session.get(url, headers=headers, timeout=self.request_timeout)
+            resp.raise_for_status()
+            self.status_error_message = "直播间接口返回异常，等待重试..."
 
             # 检查响应内容是否为空
             if not resp.text or len(resp.text) == 0:
                 self.log.debug("无法获取直播间状态（API返回空响应）")
-                return False
+                return None
 
             # 解析 JSON 响应
             try:
                 json_data = resp.json()
-            except requests.exceptions.JSONDecodeError:
+            except ValueError:
                 self.log.debug("无法解析直播间状态（响应不是有效的JSON）")
-                return False
+                return None
 
             # 检查 JSON 数据结构
             if not json_data or not isinstance(json_data, dict):
                 self.log.debug("直播间状态响应格式异常（空数据或非字典）")
-                return False
+                return None
 
             data = json_data.get('data')
             if not data or not isinstance(data, dict):
                 self.log.debug("直播间状态响应缺少 data 字段")
-                return False
+                return None
 
             room_status = data.get('room_status')
             user = data.get('user')
 
             # 检查 room_status
-            if room_status is None:
+            if not isinstance(room_status, int) or isinstance(room_status, bool):
                 self.log.debug("直播间状态响应缺少 room_status 字段")
-                return False
+                return None
+
+            self.status_error_message = None
 
             # 处理主播信息
             if user and isinstance(user, dict):
@@ -561,8 +680,9 @@ class DouyinLiveWebFetcher:
                 self.status_error_message = "直播间接口返回异常，等待重试..."
                 self.log.debug(f"获取直播间状态时出错: {e}")
                 return None
+            self.status_error_message = "直播间状态检测失败，等待重试..."
             self.log.debug(f"获取直播间状态时出错: {e}")
-            return False
+            return None
 
     def _reset_websocket_watchdog_state(self, started_at=None):
         now = time.monotonic() if started_at is None else started_at
@@ -751,7 +871,10 @@ class DouyinLiveWebFetcher:
 
         # 根据proto结构体解析对象
         package = PushFrame().parse(message)
-        response = Response().parse(gzip.decompress(package.payload))
+        payload = decompress_push_frame_payload(package)
+        if not payload:
+            return
+        response = Response().parse(payload)
 
         # 返回直播间服务器链接存活确认消息，便于持续获取数据
         if response.need_ack:

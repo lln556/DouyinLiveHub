@@ -139,12 +139,14 @@ class TopLikersApiTests(unittest.TestCase):
         self.assertEqual(len(data['likers']), 1)
         self.assertEqual(data['likers'][0]['live_id'], 'r1')
 
-    def test_caps_limit_at_1000(self):
+    def test_validates_limit_range_up_to_1000(self):
         for i in range(5):
             self._insert(live_id='r1', user_id=f'u{i}', user_name=f'n{i}',
                          total_score=0, like_count=i + 1)
-        resp = self.client.get('/api/rooms/top-likers?limit=99999')
-        self.assertEqual(resp.status_code, 200)
+        ok_resp = self.client.get('/api/rooms/top-likers?limit=1000')
+        self.assertEqual(ok_resp.status_code, 200)
+        bad_resp = self.client.get('/api/rooms/top-likers?limit=99999')
+        self.assertEqual(bad_resp.status_code, 400)
 
 
 if __name__ == '__main__':

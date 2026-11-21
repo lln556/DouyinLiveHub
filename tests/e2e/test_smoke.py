@@ -15,7 +15,7 @@ def test_home_renders_with_navigation(authed_page, base_url):
 def test_logout_redirects_to_login(authed_page, base_url):
     """点击退出登录会跳到 /login 并展示用户名输入框。"""
     authed_page.goto(base_url)
-    authed_page.locator("a[href='/logout']").click()
+    authed_page.locator("form[action='/logout'] button[type='submit']").click()
     authed_page.wait_for_url(f"{base_url}/login")
     assert authed_page.locator("input[name=username]").is_visible()
 

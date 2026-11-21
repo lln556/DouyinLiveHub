@@ -101,3 +101,9 @@ dmypy.json
 
 # Git attributes export-ignore
 EXPORT_IGNORE_DATA = true
+
+# Private runtime state and database backups
+data/backups/
+data/.secret_key
+core
+core.*

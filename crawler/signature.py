@@ -8,7 +8,7 @@
 import time
 
 
-def get__ac_signature(one_site: str, one_nonce: str, ua_n: str, one_time_stamp: int = int(time.time())) -> str:
+def get__ac_signature(one_site: str, one_nonce: str, ua_n: str, one_time_stamp: int = None) -> str:
     """计算x音的 _ac_signature 参数
 
     参数:
@@ -20,6 +20,10 @@ def get__ac_signature(one_site: str, one_nonce: str, ua_n: str, one_time_stamp: 
     返回:
         _ac_signature 字符串
     """
+
+    if one_time_stamp is None:
+        one_time_stamp = int(time.time())
+    one_nonce = one_nonce or ""
 
     def cal_one_str(one_str: str, orgi_iv: int) -> int:
         """计算字符串的哈希值 (方法1)"""

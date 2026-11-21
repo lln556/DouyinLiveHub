@@ -1,12 +1,39 @@
 """
 房间管理API路由
 """
+import re
+
 from flask import Blueprint, request, jsonify
 
 from services.data_service import DataService
+from models.database import LiveSession
 from utils.logger import get_logger
 
 logger = get_logger("api_rooms")
+
+
+class _InvalidIntParam(ValueError):
+    """仅用于客户端整数参数，避免将业务 ValueError 当作参数错误返回。"""
+
+
+def _parse_int_param(raw, name, default, min_val=None, max_val=None):
+    """严格解析整数和范围，错误信息不包含请求原值。"""
+    value = default if raw is None else raw
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise _InvalidIntParam(f'{name} 必须为整数')
+    if isinstance(value, str) and not re.fullmatch(r'[+-]?[0-9]+', value):
+        raise _InvalidIntParam(f'{name} 必须为整数')
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise _InvalidIntParam(f'{name} 必须为整数') from None
+    if min_val is not None and value < min_val:
+        raise _InvalidIntParam(f'{name} 超出允许范围')
+    if max_val is not None and value > max_val:
+        raise _InvalidIntParam(f'{name} 超出允许范围')
+    return value
 
 
 def init_rooms_api(data_service: DataService, room_manager, socketio):
@@ -17,6 +44,13 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
     called" 错误。
     """
     rooms_bp = Blueprint('rooms', __name__, url_prefix='/api/rooms')
+
+    @rooms_bp.before_request
+    def validate_live_id():
+        live_ids = [(request.view_args or {}).get('live_id'), request.args.get('live_id')]
+        for live_id in live_ids:
+            if live_id is not None and not re.fullmatch(r'^[A-Za-z0-9_.\-]{1,50}$', live_id):
+                return jsonify({'error': '直播间ID格式错误'}), 400
 
     @rooms_bp.route('', methods=['GET'])
     def list_rooms():
@@ -34,9 +68,14 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 archived_only=archived_only
             )
 
-            # 获取活跃状态
+            # One query for all ongoing sessions; snapshot rooms before iterating.
+            with data_service.get_session() as db:
+                live_sessions = db.query(LiveSession.live_id).filter(LiveSession.status == 'live').all()
+            live_ids = {row.live_id for row in live_sessions}
             active_status = {}
-            for live_id, monitored_room in room_manager.active_rooms.items():
+            with room_manager.lock:
+                active_rooms = list(room_manager.active_rooms.items())
+            for live_id, monitored_room in active_rooms:
                 active_status[live_id] = {
                     'is_active': monitored_room.thread and monitored_room.thread.is_alive(),
                     'stats': monitored_room.get_stats()
@@ -50,8 +89,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     is_monitor_alive = active_status[room.live_id]['is_active']
 
                 # 判断直播状态：基于数据库中是否有进行中的直播场次
-                current_session = data_service.get_current_live_session(room.live_id)
-                live_status = 'live' if current_session and current_session.status == 'live' else 'offline'
+                live_status = 'live' if room.live_id in live_ids else 'offline'
 
                 room_dict = {
                     'id': room.live_id,
@@ -69,28 +107,24 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 result.append(room_dict)
 
             return jsonify({'rooms': result})
-        except Exception as e:
-            logger.error(f"获取房间列表失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取房间列表失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('', methods=['POST'])
     def add_room():
         """添加监控房间"""
         try:
-            data = request.get_json()
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return jsonify({'error': '房间参数必须为对象'}), 400
             live_id = data.get('live_id')
 
             if not live_id:
                 return jsonify({'error': '请提供直播间ID'}), 400
 
-            # 验证 live_id 格式：1-50 位非空白字符（覆盖纯数字房间号、字母数字组合，
-            # 以及包含 _ . - + @ # 等特殊符号的抖音号）
-            import re
-            live_id_clean = str(live_id).strip()
-            if not re.match(r'^\S{1,50}$', live_id_clean):
-                return jsonify({'error': '直播间ID格式错误，应为 1-50 位不含空白的字符'}), 400
-
-            live_id = live_id.strip()
+            if not isinstance(live_id, str) or not re.fullmatch(r'^[A-Za-z0-9_.\-]{1,50}$', live_id):
+                return jsonify({'error': '直播间ID格式错误，应为 1-50 位字母、数字、下划线、点或短横线'}), 400
 
             # 默认监控类型为 24h，自动重连为 True
             monitor_type = '24h'
@@ -114,9 +148,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'auto_reconnect': room.auto_reconnect
                 }
             })
-        except Exception as e:
-            logger.error(f"添加房间失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('添加房间失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/archived', methods=['GET'])
     def list_archived_rooms():
@@ -124,9 +158,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
         try:
             rooms = data_service.get_archived_rooms_summary()
             return jsonify({'rooms': rooms})
-        except Exception as e:
-            logger.error(f"获取历史房间失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取历史房间失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>', methods=['GET'])
     def get_room(live_id):
@@ -164,9 +198,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'stats': stats
                 }
             })
-        except Exception as e:
-            logger.error(f"获取房间详情失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取房间详情失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/start', methods=['POST'])
     def start_room(live_id):
@@ -190,9 +224,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 return jsonify({'message': '房间监控已启动'})
             else:
                 return jsonify({'error': '启动监控失败'}), 500
-        except Exception as e:
-            logger.error(f"启动房间监控失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('启动房间监控失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/stop', methods=['POST'])
     def stop_room(live_id):
@@ -202,9 +236,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 return jsonify({'message': '房间监控已停止'})
             else:
                 return jsonify({'error': '房间不存在或未在监控中'}), 404
-        except Exception as e:
-            logger.error(f"停止房间监控失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('停止房间监控失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>', methods=['DELETE'])
     def delete_room(live_id):
@@ -219,9 +253,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 return jsonify({'message': '房间已归档，历史数据已保留'})
             else:
                 return jsonify({'error': '房间不存在'}), 404
-        except Exception as e:
-            logger.error(f"归档房间失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('归档房间失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/restore', methods=['POST'])
     def restore_room(live_id):
@@ -231,15 +265,17 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 data_service.log_system_event(live_id, 'restore', '直播间已从历史数据恢复到主页')
                 return jsonify({'message': '房间已恢复到主页'})
             return jsonify({'error': '房间不存在'}), 404
-        except Exception as e:
-            logger.error(f"恢复房间失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('恢复房间失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/hard-delete', methods=['DELETE'])
     def hard_delete_room(live_id):
         """永久删除房间及所有历史数据"""
         try:
             data = request.get_json(silent=True) or {}
+            if not isinstance(data, dict):
+                return jsonify({'error': '删除确认参数必须为对象'}), 400
             if data.get('confirm_live_id') != live_id:
                 return jsonify({'error': '请提供匹配的 confirm_live_id 以确认永久删除'}), 400
 
@@ -247,17 +283,17 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             if data_service.hard_delete_live_room(live_id):
                 return jsonify({'message': '房间及所有历史数据已永久删除'})
             return jsonify({'error': '房间不存在'}), 404
-        except Exception as e:
-            logger.error(f"永久删除房间失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('永久删除房间失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/messages', methods=['GET'])
     def get_room_messages(live_id):
         """获取房间消息（支持分页）"""
         try:
-            page_size = min(int(request.args.get('limit', 50)), 1000)
-            page = max(int(request.args.get('page', 1)), 1)
-            offset = int(request.args.get('offset', (page - 1) * page_size))
+            page_size = _parse_int_param(request.args.get('limit'), 'limit', 50, 1, 1000)
+            page = _parse_int_param(request.args.get('page'), 'page', 1, 1, 2147483647)
+            offset = _parse_int_param(request.args.get('offset'), 'offset', (page - 1) * page_size, 0, 2147483647)
             msg_type = request.args.get('type', 'all')  # chat/gift/all
 
             # 获取消息总数
@@ -316,15 +352,17 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 },
                 'counts': counts
             })
-        except Exception as e:
-            logger.error(f"获取房间消息失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取房间消息失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/contributors', methods=['GET'])
     def get_room_contributors(live_id):
         """获取房间贡献榜"""
         try:
-            limit = min(int(request.args.get('limit', 100)), 1000)
+            limit = _parse_int_param(request.args.get('limit'), 'limit', 100, 1, 1000)
             contributors = data_service.get_top_contributors(live_id, limit)
 
             return jsonify({
@@ -345,20 +383,22 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     for c in contributors
                 ]
             })
-        except Exception as e:
-            logger.error(f"获取房间贡献榜失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取房间贡献榜失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/session-contributors', methods=['GET'])
     def get_session_contributors(live_id):
         """获取当前直播场次的贡献榜"""
         try:
+            limit = _parse_int_param(request.args.get('limit'), 'limit', 100, 1, 1000)
             # 获取当前直播场次
             current_session = data_service.get_current_live_session(live_id)
             if not current_session:
                 return jsonify({'contributors': [], 'message': '暂无进行中的直播场次'})
 
-            limit = min(int(request.args.get('limit', 100)), 1000)
             contributors = data_service.get_session_contributors(live_id, current_session.id, limit)
 
             return jsonify({
@@ -366,9 +406,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 'live_id': live_id,
                 'contributors': contributors
             })
-        except Exception as e:
-            logger.error(f"获取场次贡献榜失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取场次贡献榜失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/contributors-by-date', methods=['GET'])
     def get_contributors_by_date():
@@ -377,8 +419,8 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             live_id = request.args.get('live_id')  # 可选，不传表示所有房间
             start_date = request.args.get('start_date')
             end_date = request.args.get('end_date')
-            page = max(int(request.args.get('page', 1)), 1)
-            page_size = min(int(request.args.get('page_size', 20)), 100)
+            page = _parse_int_param(request.args.get('page'), 'page', 1, 1, 2147483647)
+            page_size = _parse_int_param(request.args.get('page_size'), 'page_size', 20, 1, 100)
             source = (request.args.get('source') or '').strip().lower()
 
             if source == 'summary':
@@ -402,9 +444,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             )
 
             return jsonify(result)
-        except Exception as e:
-            logger.error(f"按日期获取贡献榜失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('按日期获取贡献榜失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/date-range', methods=['GET'])
     def get_date_range():
@@ -413,15 +457,15 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             live_id = request.args.get('live_id')
             date_range = data_service.get_room_date_range(live_id)
             return jsonify(date_range)
-        except Exception as e:
-            logger.error(f"获取日期范围失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取日期范围失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/stats', methods=['GET'])
     def get_room_stats(live_id):
         """获取房间统计"""
         try:
-            hours = int(request.args.get('hours', 24))
+            hours = _parse_int_param(request.args.get('hours'), 'hours', 24, 1, 2160)
             stats_history = data_service.get_room_stats_history(live_id, hours)
             latest_stats = data_service.get_latest_stats(live_id)
 
@@ -457,9 +501,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     for s in stats_history
                 ]
             })
-        except Exception as e:
-            logger.error(f"获取房间统计失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取房间统计失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/stats/summary', methods=['GET'])
     def get_stats_summary():
@@ -467,9 +513,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
         try:
             summary = data_service.get_stats_summary()
             return jsonify(summary)
-        except Exception as e:
-            logger.error(f"获取统计摘要失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取统计摘要失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/top-likers', methods=['GET'])
     def get_top_likers_route():
@@ -480,7 +526,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
         """
         try:
             live_id = (request.args.get('live_id') or '').strip() or None
-            limit = min(int(request.args.get('limit', 100)), 1000)
+            limit = _parse_int_param(request.args.get('limit'), 'limit', 100, 1, 1000)
 
             likers = data_service.get_top_likers(live_id=live_id, limit=limit)
 
@@ -489,9 +535,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 'total': len(likers),
                 'source': 'summary'
             })
-        except Exception as e:
-            logger.error(f"获取累积点赞榜失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取累积点赞榜失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/current-session', methods=['GET'])
     def get_current_session(live_id):
@@ -529,14 +577,15 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'peak_viewer_count': current_session.peak_viewer_count
                 }
             })
-        except Exception as e:
-            logger.error(f"获取当前直播场次失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取当前直播场次失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/sessions', methods=['GET'])
     def get_room_sessions(live_id):
         """获取房间的直播场次列表"""
         try:
+            limit = _parse_int_param(request.args.get('limit'), 'limit', 50, 1, 200)
             # 先检查房间是否存在
             room = data_service.get_live_room(live_id)
             if not room:
@@ -544,16 +593,17 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
 
             start_date = request.args.get('start_date')
             end_date = request.args.get('end_date')
-            limit = min(int(request.args.get('limit', 50)), 200)
             logger.debug(f"获取场次列表: live_id={live_id}, start_date={start_date}, end_date={end_date}")
 
             sessions = data_service.get_room_sessions_stats(live_id, start_date, end_date, limit)
             logger.debug(f"场次列表结果: 共 {len(sessions)} 条")
 
             return jsonify({'sessions': sessions})
-        except Exception as e:
-            logger.error(f"获取直播场次列表失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取直播场次列表失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/sessions/stats', methods=['GET'])
     def get_room_sessions_stats(live_id):
@@ -572,9 +622,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             logger.debug(f"房间统计结果: {stats}")
 
             return jsonify({'stats': stats})
-        except Exception as e:
-            logger.error(f"获取聚合统计数据失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取聚合统计数据失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/<live_id>/config', methods=['PUT', 'PATCH'])
     def update_room_config(live_id):
@@ -597,9 +647,9 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'status': room.status
                 }
             })
-        except Exception as e:
-            logger.error(f"获取房间配置失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取房间配置失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/sessions/stats', methods=['GET'])
     def get_all_sessions_stats():
@@ -613,17 +663,18 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             logger.debug(f"全局统计结果: {stats}")
 
             return jsonify({'stats': stats})
-        except Exception as e:
-            logger.error(f"获取全局聚合统计数据失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            logger.exception('获取全局聚合统计数据失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
-    @rooms_bp.route('/sessions/<int:session_id>', methods=['GET'])
+    @rooms_bp.route('/sessions/<session_id>', methods=['GET'])
     def get_session_detail(session_id):
         """获取直播场次详情（弹幕、礼物、贡献榜）"""
         try:
-            page_size = min(int(request.args.get('limit', 50)), 200)
-            page = max(int(request.args.get('page', 1)), 1)
-            offset = (page - 1) * page_size
+            session_id = _parse_int_param(session_id, 'session_id', None, 1, 2147483647)
+            page_size = _parse_int_param(request.args.get('limit'), 'limit', 50, 1, 200)
+            page = _parse_int_param(request.args.get('page'), 'page', 1, 1, 2147483647)
+            offset = _parse_int_param(request.args.get('offset'), 'offset', (page - 1) * page_size, 0, 2147483647)
             msg_type = request.args.get('type', 'chat')  # chat/gift/contributors
             logger.debug(f"获取场次详情: session_id={session_id}, page={page}, page_size={page_size}, type={msg_type}")
 
@@ -671,9 +722,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 result['contributors'] = data_service.get_session_contributors(session_obj['live_id'], session_id, 100)
 
             return jsonify(result)
-        except Exception as e:
-            logger.error(f"获取场次详情失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取场次详情失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     def _get_user_messages_response(live_id=None):
         """获取用户在指定房间、场次或日期范围内的消息记录"""
@@ -692,16 +745,14 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             if not user_id and not user_name:
                 return jsonify({'error': '请提供 user_name 或 user_id 参数'}), 400
 
-            session_id = request.args.get('session_id')
-            if session_id:
-                session_id = int(session_id)
+            session_id = _parse_int_param(request.args.get('session_id'), 'session_id', None, 1, 2147483647)
 
             start_date = request.args.get('start_date')
             end_date = request.args.get('end_date')
             message_type = request.args.get('type', 'all')  # all/chat/gift
-            page = max(int(request.args.get('page', 1)), 1)
-            page_size = min(int(request.args.get('limit', 50)), 200)
-            offset = (page - 1) * page_size
+            page = _parse_int_param(request.args.get('page'), 'page', 1, 1, 2147483647)
+            page_size = _parse_int_param(request.args.get('limit'), 'limit', 50, 1, 200)
+            offset = _parse_int_param(request.args.get('offset'), 'offset', (page - 1) * page_size, 0, 2147483647)
 
             # 调用数据服务获取用户消息
             result = data_service.get_user_messages(
@@ -720,9 +771,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                          f"type={message_type}, page={page}, total={result['pagination']['total']}")
 
             return jsonify(result)
-        except Exception as e:
-            logger.error(f"获取用户消息失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('获取用户消息失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     def _search_users_response(live_id=None):
         """按用户名搜索匹配用户列表。"""
@@ -735,12 +788,10 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             ).strip()
             query_live_id = (request.args.get('live_id') or '').strip() or None
             effective_live_id = live_id or query_live_id
-            session_id = request.args.get('session_id')
-            if session_id:
-                session_id = int(session_id)
+            session_id = _parse_int_param(request.args.get('session_id'), 'session_id', None, 1, 2147483647)
             start_date = request.args.get('start_date')
             end_date = request.args.get('end_date')
-            limit = min(max(int(request.args.get('limit', 30)), 1), 100)
+            limit = _parse_int_param(request.args.get('limit'), 'limit', 30, 1, 100)
 
             if not user_name:
                 return jsonify({'error': '请提供 user_name 参数'}), 400
@@ -758,9 +809,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 'users': users,
                 'total': len(users)
             })
-        except Exception as e:
-            logger.error(f"搜索用户失败: {e}")
-            return jsonify({'error': str(e)}), 500
+        except _InvalidIntParam as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception:
+            logger.exception('搜索用户失败')
+            return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     @rooms_bp.route('/user-search', methods=['GET'])
     def search_all_users():

@@ -54,6 +54,7 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
+    default-mysql-client \
     tzdata \
     curl \
     && rm -rf /var/lib/apt/lists/* \

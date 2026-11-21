@@ -58,3 +58,5 @@ build
 Thumbs.db
 *.bak
 *.tmp
+core
+core.*

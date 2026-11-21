@@ -56,3 +56,32 @@ def test_error_status_is_not_counted_as_stopped(api_client, factories):
     assert body["stopped_rooms"] == 1  # 不含 error
     assert body["monitoring_rooms"] == 0
     assert body["waiting_rooms"] == 0
+
+
+
+def test_waiting_status_counts_as_waiting(api_client, factories):
+    factories.room(live_id='waiting-explicit', status='waiting')
+    body = api_client.get('/api/rooms/stats/summary').json()
+    assert body['waiting_rooms'] == 1
+    assert body['stopped_rooms'] == 0
+
+
+def test_room_list_queries_live_sessions_once(api_client, factories, monkeypatch):
+    import app as app_module
+    from sqlalchemy import event
+    for i in range(20):
+        rid = f'list-{i}'
+        factories.room(live_id=rid)
+        if i % 2 == 0:
+            factories.session_(live_id=rid, status='live')
+    sql = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        sql.append(statement)
+    event.listen(app_module.data_service.engine, 'before_cursor_execute', capture)
+    try:
+        response = api_client.get('/api/rooms')
+    finally:
+        event.remove(app_module.data_service.engine, 'before_cursor_execute', capture)
+    assert response.status == 200
+    assert sum('FROM live_sessions' in q for q in sql) == 1
+    assert sum(row['live_status'] == 'live' for row in response.json()['rooms']) == 10

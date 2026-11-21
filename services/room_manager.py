@@ -4,6 +4,7 @@
 """
 import threading
 import time
+from collections import deque
 from typing import Dict, Optional
 
 import config
@@ -33,6 +34,7 @@ class MonitoredRoom:
         self.thread = None  # 监控线程
         self.shutdown_event = threading.Event()  # 关闭事件
         self.lifecycle_lock = threading.Lock()  # 保护启动/停止生命周期，避免重复启动线程
+        self.data_lock = threading.RLock()  # 统计、贡献榜和跨重连缓存共用的锁
         self.reconnect_count = 0  # 重连次数
         self.cookie_refresh_requested = False  # Cookie 更新触发的即时重连
         self.last_connect_time = None  # 最后连接时间
@@ -57,6 +59,11 @@ class MonitoredRoom:
         self.user_contributions = {}
         self.gift_users = set()
         self.combo_gifts = {}
+        self.trace_dedupe = deque(maxlen=2000)
+        self.trace_dedupe_set = set()
+        self.like_dedupe = deque(maxlen=2000)
+        self.like_dedupe_set = set()
+        self.gift_user_ids = set()
 
         logger.info(f"创建监控房间实例: live_id={live_id}")
 
@@ -77,7 +84,7 @@ class MonitoredRoom:
             self.thread.start()
         logger.info(f"启动房间 {self.live_id} 的监控线程")
 
-    def stop(self):
+    def stop(self, manual: bool = True):
         """停止监控"""
         self.shutdown_event.set()
 
@@ -85,16 +92,18 @@ class MonitoredRoom:
         # 检查 fetcher 是否已初始化并尝试安全停止
         if self.fetcher:
             try:
-                # 检查内部 fetcher 是否有 ws 属性（已启动）
-                if hasattr(self.fetcher, '_fetcher') and hasattr(self.fetcher._fetcher, 'ws'):
-                    self.fetcher.stop()
-                else:
-                    logger.debug(f"[{self.live_id}] Fetcher 未启动，跳过停止操作")
+                self.fetcher.stop()
             except Exception as e:
                 logger.debug(f"[{self.live_id}] 停止 fetcher 时出错（已忽略）: {e}")
 
         if self._has_been_replaced():
             logger.info(f"房间 {self.live_id} 已重新启动，跳过旧实例停止状态写入")
+            return
+
+        if not manual:
+            self.manager.data_service.update_live_room_status(
+                self.live_id, 'stopped', '监控已停止')
+            logger.info(f"房间 {self.live_id} 已停止监控")
             return
 
         # 用户手动停止时，先快速释放接口响应；直播场次是否结束由后台检查。
@@ -118,7 +127,8 @@ class MonitoredRoom:
 
     def _has_been_replaced(self) -> bool:
         """判断当前实例是否已被一次新的启动替换。"""
-        active_room = self.manager.active_rooms.get(self.live_id)
+        with self.manager.lock:
+            active_room = self.manager.active_rooms.get(self.live_id)
         return active_room is not None and active_room is not self
 
     def _schedule_manual_stop_session_check(self):
@@ -142,11 +152,10 @@ class MonitoredRoom:
                 # 创建临时 fetcher 检测主播是否还在直播
                 from crawler import DouyinLiveWebFetcher
                 temp_fetcher = DouyinLiveWebFetcher(self.live_id)
-                is_live = temp_fetcher.get_room_status()
                 try:
-                    temp_fetcher.session.close()
-                except Exception:
-                    pass
+                    is_live = temp_fetcher.get_room_status()
+                finally:
+                    temp_fetcher.close()
 
                 if self._has_been_replaced():
                     logger.info(f"[{self.live_id}] 已重新启动，跳过手动停止后的场次结束")
@@ -180,13 +189,6 @@ class MonitoredRoom:
                         self.manager.data_service,
                         self.socketio,
                         self
-                    )
-
-                    # 记录连接时间
-                    self.last_connect_time = get_china_now()
-                    self.manager.data_service.update_live_room(
-                        self.live_id,
-                        last_connect_time=self.last_connect_time
                     )
 
                     # 获取房间状态，只有在直播时才继续连接
@@ -254,6 +256,12 @@ class MonitoredRoom:
                         if self.shutdown_event.is_set():
                             break
 
+                        # 已确认开播且准备建连，才记录连接时间。
+                        self.last_connect_time = get_china_now()
+                        self.manager.data_service.update_live_room(
+                            self.live_id, last_connect_time=self.last_connect_time)
+                        if self.shutdown_event.is_set():
+                            break
                         # 启动WebSocket连接（阻塞直到断开）
                         self.fetcher.start()
 
@@ -277,6 +285,8 @@ class MonitoredRoom:
                         {'error': str(e)},
                         anchor_name=self.anchor_name if hasattr(self, 'anchor_name') else None
                     )
+                finally:
+                    self._close_fetcher()
 
                 # 检查是否应该重连（仅在已连接的情况下）
                 if self.shutdown_event.is_set():
@@ -284,6 +294,19 @@ class MonitoredRoom:
                     break
 
                 try:
+                    # 收到下播通知、场次已结束时，直接轮询，避免等待重连期间残留 stopped。
+                    if (self.last_connect_time and self.fetcher
+                            and getattr(self.fetcher, 'current_session_id', None) is None):
+                        room = self.manager.data_service.get_live_room(self.live_id)
+                        if room and room.auto_reconnect and room.status == 'stopped':
+                            self.manager.data_service.update_live_room_status(
+                                self.live_id, 'waiting', '等待主播开播')
+                            if self._poll_room_status():
+                                self.reconnect_count = 0
+                                self.manager.data_service.update_live_room_reconnect(self.live_id, 0)
+                                continue
+                            break
+
                     # 只有在之前成功连接过的情况下才考虑重连
                     # （避免在未开播时无限重试）
                     if self.should_reconnect() and self.last_connect_time:
@@ -302,7 +325,9 @@ class MonitoredRoom:
                         if self.cookie_refresh_requested:
                             self.cookie_refresh_requested = False
                         else:
-                            time.sleep(config.MONITOR_RECONNECT_DELAY)
+                            base_delay = config.MONITOR_RECONNECT_DELAY * 2 ** min(self.reconnect_count - 1, 4)
+                            if self.shutdown_event.wait(apply_jitter(base_delay)):
+                                break
                     else:
                         # 检查是否应该进入轮询模式（仅当开启自动重连时）
                         room = self.manager.data_service.get_live_room(self.live_id)
@@ -365,6 +390,16 @@ class MonitoredRoom:
                 )
             logger.info(f"房间 {self.live_id} 监控线程已退出")
 
+    def _close_fetcher(self):
+        """包装抓取器和核心抓取器都通过核心 close 释放 HTTP 连接池。"""
+        if self.fetcher is None:
+            return
+        core = getattr(self.fetcher, '_fetcher', self.fetcher)
+        try:
+            core.close()
+        except Exception as e:
+            logger.debug(f"[{self.live_id}] 关闭 fetcher 连接池失败: {e}")
+
     def _poll_room_status(self) -> bool:
         """
         轮询直播间状态，等待主播开播（无限轮询直到开播或手动停止）
@@ -377,10 +412,25 @@ class MonitoredRoom:
         poll_count = 0
 
         while not self.shutdown_event.is_set():
+            temp_fetcher = None
             try:
                 # 创建临时 fetcher 用于检测状态
                 temp_fetcher = DouyinLiveWebFetcher(self.live_id)
                 is_live = temp_fetcher.get_room_status()
+                if self.shutdown_event.is_set():
+                    return False
+
+                # 状态接口已缓存的身份信息可以直接复用；不额外发起失败状态的网络探测。
+                if is_live is True or getattr(temp_fetcher, '_cached_anchor_name', None) or getattr(temp_fetcher, '_cached_anchor_id', None):
+                    anchor_info = temp_fetcher.anchor_info
+                    if self.shutdown_event.is_set():
+                        return False
+                    if anchor_info:
+                        updates = {key: anchor_info[key] for key in ('anchor_name', 'anchor_id') if anchor_info.get(key)}
+                        if updates:
+                            self.manager.data_service.update_live_room(self.live_id, **updates)
+                            if updates.get('anchor_name'):
+                                self.anchor_name = updates['anchor_name']
 
                 # get_room_status 返回 True 表示正在直播
                 if is_live:
@@ -410,7 +460,7 @@ class MonitoredRoom:
                 else:
                     poll_count += 1
                     error_msg = (
-                        getattr(self.fetcher, "status_error_message", None)
+                        temp_fetcher.status_error_message
                         or "直播间状态检测失败，等待重试..."
                     )
                     self.manager.data_service.update_live_room_status(
@@ -422,14 +472,14 @@ class MonitoredRoom:
 
             except Exception as e:
                 logger.debug(f"房间 {self.live_id} 轮询状态时出错: {e}")
+            finally:
+                if temp_fetcher is not None:
+                    temp_fetcher.close()
 
             # 等待指定间隔后再次检测（应用抖动）
             poll_interval = apply_jitter(config.MONITOR_STATUS_POLL_INTERVAL)
-            for _ in range(poll_interval):
-                if self.shutdown_event.is_set():
-                    logger.info(f"房间 {self.live_id} 轮询被手动停止")
-                    return False
-                time.sleep(1)
+            if self.shutdown_event.wait(poll_interval):
+                return False
 
         # 被手动停止
         logger.info(f"房间 {self.live_id} 轮询被手动停止")
@@ -452,7 +502,44 @@ class MonitoredRoom:
 
     def get_stats(self) -> Dict:
         """获取统计信息"""
-        return self.stats.copy()
+        with self.data_lock:
+            return self.stats.copy()
+
+    def update_stats(self, **stats):
+        """在数据锁下更新统计，供消息处理器复用。"""
+        with self.data_lock:
+            self.stats.update(stats)
+
+    def _remember_dedupe(self, key, queue, keys) -> bool:
+        with self.data_lock:
+            if not key:
+                return True
+            if key in keys:
+                return False
+            if len(queue) == queue.maxlen:
+                keys.discard(queue[0])
+            queue.append(key)
+            keys.add(key)
+            return True
+
+    def remember_trace(self, key) -> bool:
+        """记录礼物唯一键；已存在时返回 False。缓存随房间跨重连保留。"""
+        return self._remember_dedupe(key, self.trace_dedupe, self.trace_dedupe_set)
+
+    def remember_like(self, key) -> bool:
+        """记录点赞唯一键；已存在时返回 False。"""
+        return self._remember_dedupe(key, self.like_dedupe, self.like_dedupe_set)
+
+    def reset_dedupe(self):
+        """仅在新场次开始时由消息处理器调用，原地清空避免旧引用失效。"""
+        with self.data_lock:
+            self.trace_dedupe.clear()
+            self.trace_dedupe_set.clear()
+            self.like_dedupe.clear()
+            self.like_dedupe_set.clear()
+            self.gift_user_ids.clear()
+            self.gift_users.clear()
+            self.combo_gifts.clear()
 
     def end_current_session(self, reason: str = "监控停止"):
         """
@@ -461,7 +548,7 @@ class MonitoredRoom:
         :return: 是否成功结束场次
         """
         # 优先使用 fetcher 的方法（如果存在且有活跃场次）
-        if self.fetcher and self.fetcher.current_session_id:
+        if self.fetcher and getattr(self.fetcher, 'current_session_id', None):
             return self.fetcher._end_current_session(reason=reason)
 
         # 如果没有 fetcher，使用 data_service 直接结束场次
@@ -493,6 +580,7 @@ class MonitoredRoom:
 
                         # 推送状态更新给前端
                         if self.socketio:
+                            stats = self.get_stats()
                             # 获取最新房间状态
                             room = self.manager.data_service.get_live_room(self.live_id)
                             room_status = room.status if room else None
@@ -501,11 +589,11 @@ class MonitoredRoom:
                             self.socketio.emit(f'room_{self.live_id}_stats', {
                                 'room_status': room_status,  # 新增：监控状态
                                 'room_error_message': room_error_message,
-                                'current_user_count': self.stats['current_user_count'],
-                                'total_user_count': self.stats['total_user_count'],
-                                'total_like_count': self.stats.get('total_like_count', 0),
-                                'total_income': self.stats['total_income'],
-                                'contributor_count': self.stats['contributor_count'],
+                                'current_user_count': stats['current_user_count'],
+                                'total_user_count': stats['total_user_count'],
+                                'total_like_count': stats.get('total_like_count', 0),
+                                'total_income': stats['total_income'],
+                                'contributor_count': stats['contributor_count'],
                                 'contributor_info': [],
                                 'like_rank_list': [],
                                 'current_session': current_session_data
@@ -536,8 +624,9 @@ class MonitoredRoom:
         self.offline_check_count += 1
         logger.debug(f"[{self.live_id}] 检测到未开播，计数器: {self.offline_check_count}/{offline_threshold}，原因={reason}")
 
-        if self.offline_check_count >= offline_threshold:
-            logger.info(f"[{self.live_id}] 连续{offline_threshold}次检测到未开播，结束直播场次")
+        active_session = self.fetcher and getattr(self.fetcher, 'current_session_id', None)
+        if self.offline_check_count >= offline_threshold and (active_session or self.offline_check_count == offline_threshold):
+            logger.debug(f"[{self.live_id}] 连续{offline_threshold}次检测到未开播，检查活跃场次")
             return self.end_current_session(reason=f"连续{offline_threshold}次未开播: {reason}")
         return False
 
@@ -548,35 +637,36 @@ class MonitoredRoom:
                            following_count: int = None, age_range: int = None,
                            fans_club_level: int = None, user_level: int = None):
         """更新用户贡献"""
-        if user_id not in self.user_contributions:
-            self.user_contributions[user_id] = {
-                'user_name': user_name,
-                'score': 0,
-                'avatar': user_avatar,
-                'gift_count': 0,
-                'like_count': 0,
-                'fans_club_level': fans_club_level or 0,
-                'user_level': user_level or 0
-            }
-            logger.debug(f"[新贡献用户] {user_id}={user_name}, avatar={user_avatar}, gift_value={gift_value}")
-        else:
-            old_name = self.user_contributions[user_id]['user_name']
-            old_avatar = self.user_contributions[user_id].get('avatar')
-            # 如果已有记录，更新用户名和头像（可能发生变化）
-            self.user_contributions[user_id]['user_name'] = user_name
-            if user_avatar:
-                self.user_contributions[user_id]['avatar'] = user_avatar
-            if fans_club_level and fans_club_level > 0:
-                self.user_contributions[user_id]['fans_club_level'] = fans_club_level
-            if user_level and user_level > 0:
-                self.user_contributions[user_id]['user_level'] = user_level
-            if old_name != user_name or old_avatar != user_avatar:
-                logger.debug(f"[更新用户信息] {user_id}: {old_name} -> {user_name}, avatar: {old_avatar} -> {user_avatar}")
+        with self.data_lock:
+            if user_id not in self.user_contributions:
+                self.user_contributions[user_id] = {
+                    'user_name': user_name,
+                    'score': 0,
+                    'avatar': user_avatar,
+                    'gift_count': 0,
+                    'like_count': 0,
+                    'fans_club_level': fans_club_level or 0,
+                    'user_level': user_level or 0
+                }
+                logger.debug(f"[新贡献用户] {user_id}={user_name}, avatar={user_avatar}, gift_value={gift_value}")
+            else:
+                old_name = self.user_contributions[user_id]['user_name']
+                old_avatar = self.user_contributions[user_id].get('avatar')
+                # 如果已有记录，更新用户名和头像（可能发生变化）
+                self.user_contributions[user_id]['user_name'] = user_name
+                if user_avatar:
+                    self.user_contributions[user_id]['avatar'] = user_avatar
+                if fans_club_level and fans_club_level > 0:
+                    self.user_contributions[user_id]['fans_club_level'] = fans_club_level
+                if user_level and user_level > 0:
+                    self.user_contributions[user_id]['user_level'] = user_level
+                if old_name != user_name or old_avatar != user_avatar:
+                    logger.debug(f"[更新用户信息] {user_id}: {old_name} -> {user_name}, avatar: {old_avatar} -> {user_avatar}")
 
-        self.user_contributions[user_id]['score'] += gift_value
-        self.user_contributions[user_id]['gift_count'] = self.user_contributions[user_id].get('gift_count', 0) + gift_count
-        self.user_contributions[user_id]['like_count'] = self.user_contributions[user_id].get('like_count', 0) + like_count
-        logger.debug(f"[更新贡献] {user_id}={user_name}, score={self.user_contributions[user_id]['score']}, gift_count={self.user_contributions[user_id]['gift_count']}")
+            self.user_contributions[user_id]['score'] += gift_value
+            self.user_contributions[user_id]['gift_count'] = self.user_contributions[user_id].get('gift_count', 0) + gift_count
+            self.user_contributions[user_id]['like_count'] = self.user_contributions[user_id].get('like_count', 0) + like_count
+            logger.debug(f"[更新贡献] {user_id}={user_name}, score={self.user_contributions[user_id]['score']}, gift_count={self.user_contributions[user_id]['gift_count']}")
 
         # 同步到数据库
         self.manager.data_service.update_user_contribution(
@@ -599,6 +689,8 @@ class MonitoredRoom:
 
     def get_contribution_rank(self, limit: int = 100) -> list:
         """获取贡献排行榜（只显示送过礼物的用户）"""
+        with self.data_lock:
+            contributions = [(key, value.copy()) for key, value in self.user_contributions.items()]
         rank_list = sorted(
             [
                 {
@@ -610,7 +702,7 @@ class MonitoredRoom:
                     'fans_club_level': v.get('fans_club_level', 0),
                     'user_level': v.get('user_level', 0)
                 }
-                for k, v in self.user_contributions.items()
+                for k, v in contributions
                 if v['score'] > 0  # 只包含贡献值大于0的用户（送过礼物的）
             ],
             key=lambda x: x['score'],
@@ -629,6 +721,8 @@ class MonitoredRoom:
 
     def get_like_rank(self, limit: int = 100) -> list:
         """获取本场点赞排行榜（只显示有点赞行为的用户）"""
+        with self.data_lock:
+            contributions = [(key, value.copy()) for key, value in self.user_contributions.items()]
         rank_list = sorted(
             [
                 {
@@ -639,7 +733,7 @@ class MonitoredRoom:
                     'fans_club_level': v.get('fans_club_level', 0),
                     'user_level': v.get('user_level', 0)
                 }
-                for k, v in self.user_contributions.items()
+                for k, v in contributions
                 if v.get('like_count', 0) > 0
             ],
             key=lambda x: x['like_count'],
@@ -906,21 +1000,25 @@ class RoomManager:
     def get_all_rooms_status(self) -> list:
         """获取所有房间的状态"""
         with self.lock:
-            status_list = []
-            for live_id, monitored_room in self.active_rooms.items():
-                room = self.data_service.get_live_room(live_id)
-                if room:
-                    status_list.append({
-                        'live_id': room.live_id,
-                        'anchor_name': room.anchor_name,
-                        'status': room.status,
-                        'monitor_type': room.monitor_type,
-                        'auto_reconnect': room.auto_reconnect,
-                        'reconnect_count': room.reconnect_count,
-                        'is_active': monitored_room.thread and monitored_room.thread.is_alive(),
-                        'stats': monitored_room.get_stats()
-                    })
-            return status_list
+            active_rooms = self.active_rooms.copy()
+        if not active_rooms:
+            return []
+        rooms = {room.live_id: room for room in self.data_service.list_live_rooms()}
+        status_list = []
+        for live_id, monitored_room in active_rooms.items():
+            room = rooms.get(live_id)
+            if room:
+                status_list.append({
+                    'live_id': room.live_id,
+                    'anchor_name': room.anchor_name,
+                    'status': room.status,
+                    'monitor_type': room.monitor_type,
+                    'auto_reconnect': room.auto_reconnect,
+                    'reconnect_count': room.reconnect_count,
+                    'is_active': bool(monitored_room.thread and monitored_room.thread.is_alive()),
+                    'stats': monitored_room.get_stats()
+                })
+        return status_list
 
     def update_douyin_cookie(self, douyin_cookie: str, reconnect_active: bool = True) -> int:
         """
@@ -929,17 +1027,25 @@ class RoomManager:
         """
         updated = 0
         with self.lock:
-            for live_id, monitored_room in self.active_rooms.items():
-                if monitored_room.fetcher:
-                    try:
-                        if reconnect_active:
-                            monitored_room.cookie_refresh_requested = True
-                            monitored_room.reconnect_count = 0
-                            self.data_service.update_live_room_reconnect(live_id, 0)
-                        monitored_room.fetcher.update_douyin_cookie(douyin_cookie, reconnect=reconnect_active)
-                        updated += 1
-                    except Exception as e:
-                        logger.warning(f"同步 Cookie 到房间 {live_id} 失败: {e}")
+            rooms = list(self.active_rooms.items())
+        for live_id, monitored_room in rooms:
+            fetcher = monitored_room.fetcher
+            if fetcher is None or monitored_room.shutdown_event.is_set():
+                continue
+            core = getattr(fetcher, '_fetcher', fetcher)
+            ws = getattr(core, 'ws', None)
+            reconnect = bool(reconnect_active and monitored_room.thread
+                             and monitored_room.thread.is_alive() and ws
+                             and getattr(ws, 'keep_running', True))
+            try:
+                if reconnect:
+                    monitored_room.cookie_refresh_requested = True
+                    monitored_room.reconnect_count = 0
+                    self.data_service.update_live_room_reconnect(live_id, 0)
+                fetcher.update_douyin_cookie(douyin_cookie, reconnect=reconnect)
+                updated += 1
+            except Exception as e:
+                logger.warning(f"同步 Cookie 到房间 {live_id} 失败: {e}")
         return updated
 
     def shutdown(self):
@@ -950,9 +1056,14 @@ class RoomManager:
 
         for live_id, monitored_room in rooms_to_stop:
             try:
-                monitored_room.stop()
+                monitored_room.stop(manual=False)
             except Exception as e:
                 logger.error(f"关闭房间 {live_id} 时出错: {e}")
+
+        for live_id, monitored_room in rooms_to_stop:
+            thread = monitored_room.thread
+            if thread and thread is not threading.current_thread():
+                thread.join(timeout=3)
 
         logger.info("所有监控房间已关闭")
 
@@ -962,6 +1073,8 @@ class RoomManager:
         :return: 房间状态列表
         """
         rows = []
+        with self.lock:
+            active_rooms = self.active_rooms.copy()
         try:
             all_rooms = self.data_service.list_live_rooms()
             for room in all_rooms:
@@ -974,10 +1087,11 @@ class RoomManager:
                     'total_income': 0,
                     'error_message': room.error_message if hasattr(room, 'error_message') else '',
                 }
-                monitored = self.active_rooms.get(live_id)
+                monitored = active_rooms.get(live_id)
                 if monitored:
-                    row['current_user_count'] = monitored.stats.get('current_user_count', 0)
-                    row['total_income'] = monitored.stats.get('total_income', 0)
+                    stats = monitored.get_stats()
+                    row['current_user_count'] = stats.get('current_user_count', 0)
+                    row['total_income'] = stats.get('total_income', 0)
                 rows.append(row)
         except Exception as e:
             logger.error(f"获取显示状态失败: {e}")

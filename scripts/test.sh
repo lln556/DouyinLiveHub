@@ -18,7 +18,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
-if [ ! -d ".venv" ]; then
+if [ -n "${UV_PROJECT_ENVIRONMENT:-}" ]; then
+    if [ ! -d "$UV_PROJECT_ENVIRONMENT" ]; then
+        echo "UV_PROJECT_ENVIRONMENT 目录不存在: $UV_PROJECT_ENVIRONMENT"
+        exit 1
+    fi
+elif [ ! -d ".venv" ]; then
     echo "虚拟环境不存在，请先运行 scripts/install.sh"
     exit 1
 fi

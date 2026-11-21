@@ -1,0 +1,242 @@
+"""前端离线资源、交互稳定性、XSS 防护与滑窗限制 E2E 测试。"""
+
+from __future__ import annotations
+
+import json
+from urllib.parse import urlparse
+
+import pytest
+
+pytestmark = pytest.mark.e2e
+
+
+def _wait_vue_ready(page) -> None:
+    page.wait_for_function(
+        "() => Boolean(document.querySelector('#app') && document.querySelector('#app').__vue__)"
+    )
+
+
+def test_local_vendor_assets_and_no_external_cdn_requests(authed_page, base_url, factories):
+    """所有主页面仅加载本地 /static/vendor/ 资源，不发起外部 CDN 请求且无运行时 JS 报错。"""
+    factories.room(live_id="e2e_vendor_01", anchor_name="本地资源测试")
+    base_host = urlparse(base_url).netloc
+
+    external_requests = []
+    vendor_statuses = {}
+    page_errors = []
+
+    def on_request(request):
+        parsed = urlparse(request.url)
+        if parsed.scheme in ("http", "https") and parsed.netloc != base_host:
+            external_requests.append(request.url)
+
+    def on_response(response):
+        path = urlparse(response.url).path
+        if path.startswith("/static/vendor/"):
+            vendor_statuses[path] = response.status
+
+    authed_page.on("request", on_request)
+    authed_page.on("response", on_response)
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+
+    for path in ("/", "/stats", "/history", "/room/e2e_vendor_01"):
+        authed_page.goto(f"{base_url}{path}", wait_until="domcontentloaded")
+        _wait_vue_ready(authed_page)
+        authed_page.wait_for_timeout(150)
+
+    assert external_requests == [], f"检测到外部请求: {external_requests}"
+    assert page_errors == [], f"页面产生运行时异常: {page_errors}"
+    assert vendor_statuses.get("/static/vendor/vue.min.js") in (200, 304)
+    assert vendor_statuses.get("/static/vendor/tailwind.min.css") in (200, 304)
+    assert vendor_statuses.get("/static/vendor/echarts.min.js") in (200, 304)
+    assert vendor_statuses.get("/static/vendor/socket.io.min.js") in (200, 304)
+
+
+@pytest.mark.parametrize("route_path", ["/stats", "/room/e2e_blur_01"])
+def test_user_search_blur_closes_dropdown_without_errors(authed_page, base_url, factories, route_path):
+    """统计页与房间页用户名搜索框失焦时正确收起下拉面板且零 console/pageerror。"""
+    if route_path.startswith("/room/"):
+        factories.room(live_id="e2e_blur_01", anchor_name="失焦测试主播")
+
+    page_errors = []
+    console_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+    authed_page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+
+    def handle_user_search(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "users": [
+                        {"user_id": "u_blur_1", "nickname": "测试观众甲", "message_count": 3}
+                    ]
+                }
+            ),
+        )
+
+    authed_page.route("**/user-search*", handle_user_search)
+    authed_page.goto(f"{base_url}{route_path}", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    search_input = authed_page.locator("input[placeholder='输入用户名自动搜索']")
+    search_input.click()
+    search_input.fill("测试观众")
+    authed_page.wait_for_timeout(450)
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.userSearchFocused") is True
+
+    # 触发 blur 后延迟 180ms 应无报错地将 userSearchFocused 置为 false
+    search_input.evaluate("el => el.blur()")
+    authed_page.wait_for_timeout(300)
+
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.userSearchFocused") is False
+    assert page_errors == [], f"pageerror: {page_errors}"
+    assert console_errors == [], f"console errors: {console_errors}"
+
+
+def test_room_xss_escaped_and_message_sliding_window(authed_page, base_url, factories):
+    """房间页实时消息对 HTML/XSS 载荷安全转义，并将消息列表裁剪至最多 500 条。"""
+    factories.room(live_id="e2e_xss_01", anchor_name="安全与滑窗测试")
+
+    page_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+    authed_page.goto(f"{base_url}/room/e2e_xss_01", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    authed_page.evaluate("() => { window.__xssExecuted = false; }")
+
+    xss_chat = "<script>window.__xssExecuted=true</script><b onmouseover='window.__xssExecuted=true'>hello</b>"
+    xss_user = "<img src=x onerror='window.__xssExecuted=true'>坏蛋"
+    xss_gift = "<img src=x onerror='window.__xssExecuted=true'>火箭"
+
+    authed_page.evaluate(
+        """([xssChat, xssUser, xssGift]) => {
+            const vm = document.querySelector('#app').__vue__;
+            vm.handleMessage({
+                type: 'chat',
+                user_id: 'u_xss_1',
+                user: xssUser,
+                text: xssChat
+            });
+            vm.handleMessage({
+                type: 'gift',
+                user_id: 'u_xss_2',
+                user: '礼物测试<svg onload="window.__xssExecuted=true">',
+                gift_name: xssGift,
+                gift_count: 2,
+                total_value: 20
+            });
+            vm.handleMessage({
+                type: 'chat',
+                user_id: 'u_xss_3',
+                user: '旧格式用户',
+                content: '<span class="username">旧格式用户</span>: <img src=x onerror="window.__xssExecuted=true">旧消息'
+            });
+        }""",
+        [xss_chat, xss_user, xss_gift],
+    )
+    authed_page.wait_for_timeout(150)
+
+    assert authed_page.evaluate("() => Boolean(window.__xssExecuted)") is False
+    assert authed_page.locator(".messages-container [onerror], .messages-container script, .messages-container svg[onload]").count() == 0
+    container_text = authed_page.locator(".messages-container").inner_text()
+    assert "<script>window.__xssExecuted=true</script>" in container_text
+    assert xss_user in container_text
+    assert xss_gift in container_text
+
+    # 验证超过 500 条实时消息时的滑窗裁剪
+    authed_page.evaluate(
+        """() => {
+            const vm = document.querySelector('#app').__vue__;
+            vm.messages = [];
+            for (let i = 0; i < 550; i++) {
+                vm.handleMessage({
+                    type: 'chat',
+                    user_id: 'u_' + i,
+                    user: '观众' + i,
+                    text: 'msg-' + i
+                });
+            }
+        }"""
+    )
+    authed_page.wait_for_timeout(150)
+
+    state = authed_page.evaluate(
+        """() => {
+            const vm = document.querySelector('#app').__vue__;
+            return {
+                count: vm.messages.length,
+                first: vm.messages[0] ? vm.messages[0].text : null,
+                last: vm.messages[vm.messages.length - 1] ? vm.messages[vm.messages.length - 1].text : null
+            };
+        }"""
+    )
+    assert state["count"] == 500
+    assert state["first"] == "msg-50"
+    assert state["last"] == "msg-549"
+    assert page_errors == []
+
+
+def test_stats_like_tab_preserved_when_switching_back_to_all_rooms(authed_page, base_url, factories):
+    """统计页在点赞榜切回“全部房间”时保留看板可见并刷新全部房间点赞榜。"""
+    factories.room(live_id="e2e_stats_01", anchor_name="统计主播甲")
+
+    authed_page.route(
+        "**/api/rooms/sessions/stats*",
+        lambda r: r.fulfill(status=200, content_type="application/json", body='{"stats":{"total_income":100,"total_sessions":1,"live_sessions":0,"ended_sessions":1,"total_gift_count":1,"total_chat_count":2,"total_like_count":50,"trend":[]}}'),
+    )
+    authed_page.route(
+        "**/api/rooms/*/sessions/stats*",
+        lambda r: r.fulfill(status=200, content_type="application/json", body='{"stats":{"total_income":100,"total_sessions":1,"live_sessions":0,"ended_sessions":1,"total_gift_count":1,"total_chat_count":2,"total_like_count":50,"trend":[]}}'),
+    )
+    authed_page.route(
+        "**/api/rooms/*/sessions?*",
+        lambda r: r.fulfill(status=200, content_type="application/json", body='{"sessions":[]}'),
+    )
+    authed_page.route(
+        "**/api/rooms/contributors-by-date*",
+        lambda r: r.fulfill(status=200, content_type="application/json", body='{"contributors":[],"page":1,"page_size":20,"total":0,"total_pages":1}'),
+    )
+    authed_page.route(
+        "**/api/rooms/top-likers*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "likers": [
+                        {
+                            "user_id": "liker_1",
+                            "user_name": "全站榜一",
+                            "live_id": "e2e_stats_01",
+                            "anchor_name": "统计主播甲",
+                            "gift_count": 0,
+                            "like_count": 999,
+                            "fans_club_level": 0,
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+
+    authed_page.goto(f"{base_url}/stats", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    room_select = authed_page.locator("select").first
+    room_select.select_option("e2e_stats_01")
+    authed_page.wait_for_function("() => document.querySelector('#app').__vue__.hasSearched === true")
+
+    authed_page.get_by_role("button", name="点赞榜").click()
+    authed_page.wait_for_timeout(150)
+    assert "全站榜一" in authed_page.locator("body").inner_text()
+
+    # 切回“全部房间”("")：点赞榜和主看板应继续显示而不是突然消失
+    room_select.select_option("")
+    authed_page.wait_for_timeout(200)
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.hasSearched") is True
+    assert "全站榜一" in authed_page.locator("body").inner_text()

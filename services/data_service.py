@@ -4,9 +4,12 @@
 """
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
-from sqlalchemy import create_engine, and_, or_, func, text
+from sqlalchemy import create_engine, and_, or_, func, text, update, select, tuple_
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import make_url
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 import config
 from models.database import Base, LiveRoom, ChatMessage, GiftMessage, RoomStats, UserContribution, SystemEvent, LiveSession, get_china_now, CHINA_TZ
@@ -24,11 +27,13 @@ class DataService:
         :param database_url: 数据库连接URL
         """
         self.database_url = database_url or config.DATABASE_URL
+        pool_options = {} if make_url(self.database_url).get_backend_name() == 'sqlite' else {'pool_size': 15, 'max_overflow': 25}
         self.engine = create_engine(
             self.database_url,
             echo=config.SQLALCHEMY_ECHO,
             pool_pre_ping=True,
-            pool_recycle=3600
+            pool_recycle=3600,
+            **pool_options
         )
         self.SessionLocal = sessionmaker(
             autocommit=False,
@@ -123,7 +128,7 @@ class DataService:
             return room
         except IntegrityError:
             session.rollback()
-            return self.get_live_room_by_live_id(live_id)
+            return self.get_live_room(live_id)
         finally:
             session.close()
 
@@ -278,7 +283,7 @@ class DataService:
             archived_condition = or_(LiveRoom.archived_at.isnot(None), LiveRoom.status == 'archived')
             total_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition).scalar() or 0
             monitoring_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'monitoring').scalar() or 0
-            waiting_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'offline').scalar() or 0
+            waiting_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status.in_(['offline', 'waiting'])).scalar() or 0
             stopped_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.status == 'stopped').scalar() or 0
             h24_rooms = session.query(func.count(LiveRoom.live_id)).filter(active_condition, LiveRoom.monitor_type == '24h').scalar() or 0
             archived_rooms = session.query(func.count(LiveRoom.live_id)).filter(archived_condition).scalar() or 0
@@ -312,9 +317,10 @@ class DataService:
             def iso(value):
                 return value.isoformat() if value else None
 
-            result = []
-            for room in rooms:
-                session_agg = session.query(
+            room_ids = [room.live_id for room in rooms]
+            if not room_ids:
+                return []
+            session_rows = session.query(LiveSession.live_id,
                     func.count(LiveSession.id),
                     func.coalesce(func.sum(LiveSession.total_income), 0),
                     func.coalesce(func.sum(LiveSession.total_gift_count), 0),
@@ -322,26 +328,36 @@ class DataService:
                     func.coalesce(func.sum(LiveSession.total_like_count), 0),
                     func.min(LiveSession.start_time),
                     func.max(func.coalesce(LiveSession.end_time, LiveSession.start_time))
-                ).filter(LiveSession.live_id == room.live_id).one()
+                ).filter(LiveSession.live_id.in_(room_ids)).group_by(LiveSession.live_id).all()
+            session_map = {row[0]: tuple(row[1:]) for row in session_rows}
 
-                chat_agg = session.query(
+            chat_rows = session.query(ChatMessage.live_id,
                     func.count(ChatMessage.id),
                     func.min(ChatMessage.created_at),
                     func.max(ChatMessage.created_at)
-                ).filter(ChatMessage.live_id == room.live_id).one()
+                ).filter(ChatMessage.live_id.in_(room_ids)).group_by(ChatMessage.live_id).all()
+            chat_map = {row[0]: tuple(row[1:]) for row in chat_rows}
 
-                gift_agg = session.query(
+            gift_rows = session.query(GiftMessage.live_id,
                     func.coalesce(func.sum(GiftMessage.total_value), 0),
                     func.coalesce(func.sum(GiftMessage.gift_count), 0),
                     func.min(GiftMessage.created_at),
                     func.max(GiftMessage.created_at)
-                ).filter(GiftMessage.live_id == room.live_id).one()
+                ).filter(GiftMessage.live_id.in_(room_ids)).group_by(GiftMessage.live_id).all()
+            gift_map = {row[0]: tuple(row[1:]) for row in gift_rows}
 
-                stats_agg = session.query(
+            stats_rows = session.query(RoomStats.live_id,
                     func.min(RoomStats.stats_at),
                     func.max(RoomStats.stats_at)
-                ).filter(RoomStats.live_id == room.live_id).one()
+                ).filter(RoomStats.live_id.in_(room_ids)).group_by(RoomStats.live_id).all()
+            stats_map = {row[0]: tuple(row[1:]) for row in stats_rows}
 
+            result = []
+            for room in rooms:
+                session_agg = session_map.get(room.live_id, (0, 0, 0, 0, 0, None, None))
+                chat_agg = chat_map.get(room.live_id, (0, None, None))
+                gift_agg = gift_map.get(room.live_id, (0, 0, None, None))
+                stats_agg = stats_map.get(room.live_id, (None, None))
                 first_candidates = [
                     session_agg[5],
                     chat_agg[1],
@@ -375,7 +391,7 @@ class DataService:
                     'first_activity_at': iso(min(first_candidates, key=dt_key)) if first_candidates else None,
                     'last_activity_at': iso(max(last_candidates, key=dt_key)) if last_candidates else None,
                     'total_sessions': int(session_agg[0] or 0),
-                    'total_income': gift_income if gift_income > 0 else session_income,
+                    'total_income': max(gift_income, session_income),
                     'total_gift_count': gift_count if gift_count > 0 else session_gift_count,
                     'total_chat_count': chat_count if chat_count > 0 else session_chat_count,
                     'total_like_count': session_like_count
@@ -483,31 +499,24 @@ class DataService:
             session.close()
 
     def get_all_messages(self, live_id: str, limit: int = 100, offset: int = 0) -> List[Dict]:
-        """获取所有消息（弹幕和礼物混合）"""
+        """Only merge each table's first offset+limit rows."""
         session = self.get_session()
         try:
-            # 使用原生SQL查询合并两种消息，支持分页
-            sql = text("""
-                SELECT 'chat' as type, id, user_name, user_level, content as display_content,
-                       NULL as gift_name, NULL as gift_count, NULL as total_value, created_at
-                FROM chat_messages
-                WHERE live_id = :live_id
-                UNION ALL
-                SELECT 'gift' as type, id, user_name, user_level,
-                       CONCAT(user_name, ' 赠送了 ', gift_name, 'x', gift_count) as display_content,
-                       gift_name, gift_count, total_value, created_at
-                FROM gift_messages
-                WHERE live_id = :live_id
-                ORDER BY created_at DESC
-                LIMIT :limit OFFSET :offset
-            """)
-            result = session.execute(sql, {'live_id': live_id, 'limit': limit, 'offset': offset})
-            # SQLAlchemy 2.0 兼容方式转换 Row 为 Dict
-            return [row._asdict() if hasattr(row, '_asdict') else dict(row._mapping) for row in result]
+            messages = []
+            for model, kind in [(ChatMessage, 'chat'), (GiftMessage, 'gift')]:
+                rows = session.query(model).filter(model.live_id == live_id).order_by(
+                    model.created_at.desc(), model.id.desc()).limit(offset + limit).all()
+                for msg in rows:
+                    messages.append(dict(type=kind, id=msg.id, user_name=msg.user_name,
+                        user_level=msg.user_level, created_at=msg.created_at,
+                        display_content=msg.content if kind == 'chat' else f'{msg.user_name} 赠送了 {msg.gift_name}x{msg.gift_count}',
+                        gift_name=msg.gift_name if kind == 'gift' else None,
+                        gift_count=msg.gift_count if kind == 'gift' else None,
+                        total_value=msg.total_value if kind == 'gift' else None))
+            messages.sort(key=lambda row: (row['created_at'], row['id']), reverse=True)
+            return messages[offset:offset + limit]
         finally:
             session.close()
-
-    # ==================== 统计操作 ====================
 
     def save_room_stats(self, live_id: str, anchor_name: str = None, **kwargs) -> Optional[RoomStats]:
         """保存统计快照"""
@@ -559,67 +568,43 @@ class DataService:
                                  following_count: int = None, age_range: int = None,
                                  fans_club_level: int = None,
                                  user_level: int = None) -> UserContribution:
-        """更新用户贡献"""
+        """Atomically add counters; replace only newly observed profile fields."""
         session = self.get_session()
         try:
-            contribution = session.query(UserContribution).filter(
-                and_(
-                    UserContribution.live_id == live_id,
-                    UserContribution.user_id == user_id
-                )
-            ).first()
-
-            if contribution:
-                contribution.total_score += gift_value
-                contribution.gift_count += gift_count
-                contribution.chat_count += chat_count
-                contribution.like_count += like_count
-                if user_avatar:
-                    contribution.user_avatar = user_avatar
-                contribution.user_name = user_name  # 更新用户名
-                if anchor_name:
-                    contribution.anchor_name = anchor_name  # 更新主播名
-                # 更新用户额外信息（只在有值时更新）
-                if gender is not None and gender > 0:
-                    contribution.gender = gender
-                if follower_count is not None and follower_count > 0:
-                    contribution.follower_count = follower_count
-                if following_count is not None and following_count > 0:
-                    contribution.following_count = following_count
-                if age_range is not None and age_range > 0:
-                    contribution.age_range = age_range
-                if fans_club_level is not None and fans_club_level > 0:
-                    contribution.fans_club_level = fans_club_level
-                if user_level is not None and user_level > 0:
-                    contribution.user_level = user_level
-                contribution.updated_at = get_china_now()
+            now = get_china_now()
+            values = dict(live_id=live_id, anchor_name=anchor_name, user_id=user_id,
+                          user_name=user_name, total_score=gift_value, gift_count=gift_count,
+                          chat_count=chat_count, like_count=like_count, user_avatar=user_avatar,
+                          created_at=now, updated_at=now)
+            profile = dict(gender=gender, follower_count=follower_count,
+                           following_count=following_count, age_range=age_range,
+                           fans_club_level=fans_club_level, user_level=user_level)
+            for key, val in profile.items():
+                if val is not None and val > 0:
+                    values[key] = val
+            insert = sqlite_insert if self.engine.dialect.name == 'sqlite' else mysql_insert
+            statement = insert(UserContribution).values(**values)
+            updates = {
+                'total_score': func.coalesce(UserContribution.total_score, 0) + gift_value,
+                'gift_count': func.coalesce(UserContribution.gift_count, 0) + gift_count,
+                'chat_count': func.coalesce(UserContribution.chat_count, 0) + chat_count,
+                'like_count': func.coalesce(UserContribution.like_count, 0) + like_count,
+                'user_name': user_name, 'updated_at': now,
+            }
+            for key in ['anchor_name', 'user_avatar'] + list(profile):
+                if values.get(key):
+                    updates[key] = values[key]
+            if self.engine.dialect.name == 'sqlite':
+                statement = statement.on_conflict_do_update(index_elements=['live_id', 'user_id'], set_=updates)
             else:
-                contribution = UserContribution(
-                    live_id=live_id,
-                    anchor_name=anchor_name,
-                    user_id=user_id,
-                    user_name=user_name,
-                    total_score=gift_value,
-                    gift_count=gift_count,
-                    chat_count=chat_count,
-                    like_count=like_count,
-                    user_avatar=user_avatar,
-                    gender=gender if gender and gender > 0 else None,
-                    follower_count=follower_count if follower_count and follower_count > 0 else None,
-                    following_count=following_count if following_count and following_count > 0 else None,
-                    age_range=age_range if age_range and age_range > 0 else None,
-                    fans_club_level=fans_club_level if fans_club_level and fans_club_level > 0 else 0,
-                    user_level=user_level if user_level and user_level > 0 else 0
-                )
-                session.add(contribution)
-
+                statement = statement.on_duplicate_key_update(**updates)
+            session.execute(statement)
             session.commit()
-            session.refresh(contribution)
-            return contribution
-        except Exception as e:
+            return session.query(UserContribution).filter_by(live_id=live_id, user_id=user_id).one()
+        except Exception:
             session.rollback()
-            print(f"更新用户贡献失败: {e}")
-            return None
+            logger.error('更新用户贡献失败')
+            raise
         finally:
             session.close()
 
@@ -633,198 +618,78 @@ class DataService:
         finally:
             session.close()
 
+    @staticmethod
+    def _escape_like(value):
+        return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
     def get_contributors_by_date_range(self, live_id: str = None, start_date: str = None, end_date: str = None, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
-        """
-        按日期范围获取贡献榜（从礼物消息中聚合）
-        :param live_id: 房间ID，None 表示所有房间
-        :param start_date: 开始日期 (YYYY-MM-DD)
-        :param end_date: 结束日期 (YYYY-MM-DD)
-        :param page: 页码（从1开始）
-        :param page_size: 每页数量
-        :return: {'contributors': [...], 'total': 总数, 'page': 当前页, 'page_size': 每页数量, 'total_pages': 总页数}
-        """
+        """Aggregate identities and enrich just the current page in bounded queries."""
         session = self.get_session()
         try:
-            # 构建查询条件
-            conditions = []
-            related_ids = self._related_live_ids(session, live_id) if live_id else []
-
-            if related_ids:
-                conditions.append(GiftMessage.live_id.in_(related_ids))
-
-            if start_date:
-                start_datetime = datetime.strptime(start_date, '%Y-%m-%d').replace(
-                    hour=0, minute=0, second=0, microsecond=0,
-                    tzinfo=CHINA_TZ
-                )
-                conditions.append(GiftMessage.created_at >= start_datetime)
-
-            if end_date:
-                end_datetime = datetime.strptime(end_date, '%Y-%m-%d').replace(
-                    hour=23, minute=59, second=59, microsecond=999999,
-                    tzinfo=CHINA_TZ
-                )
-                conditions.append(GiftMessage.created_at <= end_datetime)
-
-            # 指定房间时按主播合并：同一 user_id 跨关联 live_id 只计一条。
-            # 全部房间仍按 (live_id, user_id)，避免把不同主播下的同一观众合成一行。
-            if live_id:
-                count_query = session.query(func.count(func.distinct(GiftMessage.user_id)))
-            else:
-                count_query = session.query(
-                    func.count(func.distinct(
-                        func.concat(GiftMessage.live_id, '_', GiftMessage.user_id)
-                    ))
-                )
-            if conditions:
-                count_query = count_query.filter(and_(*conditions))
-            total = count_query.scalar() or 0
-
-            # 计算分页
-            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
-            offset = (page - 1) * page_size
-
-            # 聚合查询：按用户ID统计礼物贡献，昵称只作为展示信息。
-            # 用户改名后历史礼物流水保留旧昵称，不能把昵称放进分组键，否则同一人会被拆成多条榜单记录。
-            subquery = session.query(
+            related = self._related_live_ids(session, live_id) if live_id else []
+            start = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=CHINA_TZ) if start_date else None
+            end = datetime.strptime(end_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=CHINA_TZ) if end_date else None
+            def conditions(model):
+                result = []
+                if related:
+                    result.append(model.live_id.in_(related))
+                if start:
+                    result.append(model.created_at >= start)
+                if end:
+                    result.append(model.created_at <= end)
+                return result
+            group = [GiftMessage.user_id] if live_id else [GiftMessage.live_id, GiftMessage.user_id]
+            grouped = session.query(*group).filter(*conditions(GiftMessage)).group_by(*group).subquery()
+            total = session.query(func.count()).select_from(grouped).scalar() or 0
+            rows = session.query(
                 func.max(GiftMessage.live_id).label('live_id'),
-                func.max(GiftMessage.anchor_name).label('anchor_name'),
-                GiftMessage.user_id,
+                func.max(GiftMessage.anchor_name).label('anchor_name'), GiftMessage.user_id,
                 func.sum(GiftMessage.total_value).label('contribution_value'),
-                func.count(GiftMessage.id).label('gift_count'),
-                func.min(GiftMessage.user_level).label('user_level')
-            )
-
-            if conditions:
-                subquery = subquery.filter(and_(*conditions))
-
-            if live_id:
-                subquery = subquery.group_by(GiftMessage.user_id)
-            else:
-                subquery = subquery.group_by(
-                    GiftMessage.live_id,
-                    GiftMessage.user_id,
-                )
-            subquery = subquery.order_by(func.sum(GiftMessage.total_value).desc())
-
-            # 添加分页到子查询
-            subquery = subquery.limit(page_size).offset(offset)
-
-            # 执行查询
-            results = subquery.all()
-
-            # 转换为字典列表，并从 user_contributions 表获取头像
+                func.sum(GiftMessage.gift_count).label('gift_count'),
+                func.max(GiftMessage.user_level).label('user_level')
+            ).filter(*conditions(GiftMessage)).group_by(*group).order_by(
+                func.sum(GiftMessage.total_value).desc(), *group).limit(page_size).offset((page - 1) * page_size).all()
             contributors = []
-            for row in results:
-                if live_id:
-                    contribs = session.query(UserContribution).filter(
-                        and_(
-                            UserContribution.live_id.in_(related_ids),
-                            UserContribution.user_id == row.user_id
-                        )
-                    ).order_by(UserContribution.updated_at.desc()).all()
-                    user_contrib = contribs[0] if contribs else None
-                    like_count = sum(int(item.like_count or 0) for item in contribs)
-                    identity_live_filter = ChatMessage.live_id.in_(related_ids)
-                    gift_identity_live_filter = GiftMessage.live_id.in_(related_ids)
-                else:
-                    user_contrib = session.query(UserContribution).filter(
-                        and_(
-                            UserContribution.live_id == row.live_id,
-                            UserContribution.user_id == row.user_id
-                        )
-                    ).first()
-                    like_count = int(user_contrib.like_count or 0) if user_contrib else 0
-                    identity_live_filter = ChatMessage.live_id == row.live_id
-                    gift_identity_live_filter = GiftMessage.live_id == row.live_id
+            if rows:
+                user_ids = list({row.user_id for row in rows})
+                room_ids = related or list({row.live_id for row in rows})
+                key_for = lambda rid, uid: uid if live_id else (rid, uid)
+                contribs = session.query(UserContribution).filter(
+                    UserContribution.user_id.in_(user_ids), UserContribution.live_id.in_(room_ids)
+                ).order_by(UserContribution.updated_at.desc(), UserContribution.id.desc()).all()
+                profiles, likes = {}, {}
+                for item in contribs:
+                    key = key_for(item.live_id, item.user_id)
+                    profiles.setdefault(key, item)
+                    likes[key] = likes.get(key, 0) + int(item.like_count or 0)
 
-                message_identity_conditions = [
-                    identity_live_filter,
-                    ChatMessage.user_id == row.user_id
-                ]
-                gift_identity_conditions = [
-                    gift_identity_live_filter,
-                    GiftMessage.user_id == row.user_id
-                ]
-                if start_date:
-                    message_identity_conditions.append(ChatMessage.created_at >= start_datetime)
-                    gift_identity_conditions.append(GiftMessage.created_at >= start_datetime)
-                if end_date:
-                    message_identity_conditions.append(ChatMessage.created_at <= end_datetime)
-                    gift_identity_conditions.append(GiftMessage.created_at <= end_datetime)
-
-                latest_chat = session.query(ChatMessage).filter(
-                    and_(*message_identity_conditions)
-                ).order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).first()
-                latest_gift = session.query(GiftMessage).filter(
-                    and_(*gift_identity_conditions)
-                ).order_by(GiftMessage.created_at.desc(), GiftMessage.id.desc()).first()
-
-                latest_message = None
-                if latest_chat and latest_gift:
-                    latest_message = latest_chat if latest_chat.created_at >= latest_gift.created_at else latest_gift
-                else:
-                    latest_message = latest_chat or latest_gift
-
-                nickname = (
-                    latest_message.user_name if latest_message else
-                    user_contrib.user_name if user_contrib else
-                    row.user_id
-                )
-
-                anchor_name = (
-                    latest_message.anchor_name if latest_message and latest_message.anchor_name else
-                    row.anchor_name
-                )
-                fallback_user_level = (
-                    latest_message.user_level
-                    if latest_message and latest_message.user_level
-                    else row.user_level or 0
-                )
-
-                # 计算弹幕数
-                chat_conditions = [ChatMessage.user_id == row.user_id]
-                if live_id:
-                    chat_conditions.append(ChatMessage.live_id.in_(related_ids))
-                else:
-                    chat_conditions.append(ChatMessage.live_id == row.live_id)
-                if start_date:
-                    chat_conditions.append(ChatMessage.created_at >= start_datetime)
-                if end_date:
-                    chat_conditions.append(ChatMessage.created_at <= end_datetime)
-
-                chat_count = session.query(func.count(ChatMessage.id)).filter(
-                    and_(*chat_conditions)
-                ).scalar() or 0
-
-                profile = self._latest_profile_fields(
-                    user_contrib,
-                    fallback_nickname=nickname,
-                    fallback_user_level=fallback_user_level,
-                    fallback_fans_club_level=0,
-                )
-
-                contributors.append({
-                    'live_id': live_id or row.live_id,
-                    'anchor_name': anchor_name,
-                    'user_id': row.user_id,
-                    'nickname': profile['nickname'],
-                    'contribution_value': int(row.contribution_value),
-                    'gift_count': int(row.gift_count),
-                    'chat_count': chat_count,
-                    'like_count': like_count,
-                    'user_avatar': profile['user_avatar'],
-                    'user_level': profile['user_level'],
-                    'fans_club_level': profile['fans_club_level']
-                })
-
-            return {
-                'contributors': contributors,
-                'total': total,
-                'page': page,
-                'page_size': page_size,
-                'total_pages': total_pages
-            }
+                def latest_messages(model):
+                    partitions = [model.user_id] if live_id else [model.live_id, model.user_id]
+                    ranked = session.query(
+                        model.live_id, model.user_id, model.user_name, model.anchor_name,
+                        model.user_level, model.fans_club_level, model.created_at,
+                        func.count(model.id).over(partition_by=partitions).label('message_count'),
+                        func.row_number().over(partition_by=partitions,
+                            order_by=[model.created_at.desc(), model.id.desc()]).label('rn')
+                    ).filter(model.user_id.in_(user_ids), model.live_id.in_(room_ids), *conditions(model)).subquery()
+                    return {key_for(r.live_id, r.user_id): r for r in session.query(ranked).filter(ranked.c.rn == 1).all()}
+                chats = latest_messages(ChatMessage)
+                gifts = latest_messages(GiftMessage)
+                for row in rows:
+                    key = key_for(row.live_id, row.user_id)
+                    chat, gift = chats.get(key), gifts.get(key)
+                    latest = max([v for v in [chat, gift] if v], key=lambda v: v.created_at, default=None)
+                    profile = self._latest_profile_fields(profiles.get(key),
+                        fallback_nickname=latest.user_name if latest else row.user_id,
+                        fallback_user_level=(latest.user_level or 0) if latest else row.user_level,
+                        fallback_fans_club_level=(latest.fans_club_level or 0) if latest else 0)
+                    contributors.append(dict(live_id=live_id or row.live_id,
+                        anchor_name=(latest.anchor_name if latest and latest.anchor_name else row.anchor_name),
+                        user_id=row.user_id, contribution_value=float(row.contribution_value or 0),
+                        gift_count=int(row.gift_count or 0), chat_count=int(chat.message_count if chat else 0),
+                        like_count=likes.get(key, 0), **profile))
+            return dict(contributors=contributors, total=total, page=page, page_size=page_size,
+                        total_pages=max(1, (total + page_size - 1) // page_size))
         finally:
             session.close()
 
@@ -1175,7 +1040,7 @@ class DataService:
                 func.max(GiftMessage.user_name).label('user_name'),
                 func.max(GiftMessage.user_level).label('user_level'),
                 func.sum(GiftMessage.total_value).label('total_score'),
-                func.count(GiftMessage.id).label('gift_count')
+                func.sum(GiftMessage.gift_count).label('gift_count')
             ).filter(
                 and_(
                     GiftMessage.live_id == live_id,
@@ -1336,43 +1201,39 @@ class DataService:
     # ==================== 数据清理 ====================
 
     def cleanup_old_data(self, retention_days: int = None) -> Dict[str, int]:
-        """清理旧数据"""
-        retention_days = retention_days or config.DATA_RETENTION_DAYS
+        """Commit bounded batches and retain messages belonging to active sessions."""
+        retention_days = config.DATA_RETENTION_DAYS if retention_days is None else retention_days
         if retention_days == 0:
             return {'message': '数据保留设置为永久保留，不清理'}
-
         cutoff_date = get_china_now() - timedelta(days=retention_days)
         session = self.get_session()
         try:
-            chat_deleted = session.query(ChatMessage).filter(
-                ChatMessage.created_at < cutoff_date
-            ).delete()
-            gift_deleted = session.query(GiftMessage).filter(
-                GiftMessage.created_at < cutoff_date
-            ).delete()
-            stats_deleted = session.query(RoomStats).filter(
-                RoomStats.stats_at < cutoff_date
-            ).delete()
-            event_deleted = session.query(SystemEvent).filter(
-                SystemEvent.created_at < cutoff_date
-            ).delete()
-
-            session.commit()
-            return {
-                'chat_messages_deleted': chat_deleted,
-                'gift_messages_deleted': gift_deleted,
-                'stats_deleted': stats_deleted,
-                'events_deleted': event_deleted,
-                'cutoff_date': cutoff_date.isoformat()
-            }
-        except Exception as e:
+            result = {'cutoff_date': cutoff_date.isoformat()}
+            for model, date_col, key in [
+                (ChatMessage, ChatMessage.created_at, 'chat_messages_deleted'),
+                (GiftMessage, GiftMessage.created_at, 'gift_messages_deleted'),
+                (RoomStats, RoomStats.stats_at, 'stats_deleted'),
+                (SystemEvent, SystemEvent.created_at, 'events_deleted')]:
+                conditions = [date_col < cutoff_date]
+                if model in (ChatMessage, GiftMessage):
+                    active = select(LiveSession.id).where(LiveSession.status == 'live')
+                    conditions.append(or_(model.live_session_id.is_(None), model.live_session_id.not_in(active)))
+                deleted = 0
+                while True:
+                    ids = [row[0] for row in session.query(model.id).filter(*conditions).order_by(model.id).limit(10000).all()]
+                    if not ids:
+                        break
+                    # Recheck eligibility so a resumed live session is protected.
+                    deleted += session.query(model).filter(model.id.in_(ids), *conditions).delete(synchronize_session=False)
+                    session.commit()
+                result[key] = deleted
+            return result
+        except Exception:
             session.rollback()
-            print(f"清理旧数据失败: {e}")
-            return {'error': str(e)}
+            logger.error('清理旧数据失败')
+            return {'error': '清理旧数据失败'}
         finally:
             session.close()
-
-    # ==================== 直播场次操作 ====================
 
     def create_live_session(self, live_id: str, anchor_name: str = None, **kwargs) -> Optional[LiveSession]:
         """创建新的直播场次"""
@@ -1390,12 +1251,14 @@ class DataService:
                     )
                 ).order_by(LiveSession.start_time.desc()).first()
                 if existing_session:
+                    existing_session._was_created = False
                     return existing_session
 
             session_obj = LiveSession(live_id=live_id, anchor_name=anchor_name, **kwargs)
             session.add(session_obj)
             session.commit()
             session.refresh(session_obj)
+            session_obj._was_created = True
             return session_obj
         except Exception as e:
             session.rollback()
@@ -1418,67 +1281,61 @@ class DataService:
             session.close()
 
     def end_live_session(self, session_id: int, peak_viewer_count: int = None) -> bool:
-        """结束直播场次"""
+        """Close once; retained aggregates survive expired message details."""
         session = self.get_session()
         try:
-            session_obj = session.query(LiveSession).filter(LiveSession.id == session_id).first()
-            if session_obj:
-                already_ended = session_obj.status == 'ended'
-                if not already_ended:
-                    session_obj.status = 'ended'
-                    session_obj.end_time = get_china_now()
-                elif session_obj.end_time is None:
-                    session_obj.end_time = get_china_now()
-
-                if peak_viewer_count is not None:
-                    session_obj.peak_viewer_count = max(session_obj.peak_viewer_count or 0, peak_viewer_count)
-
-                # 从 gift_messages 表重新聚合统计，校正增量累加可能产生的误差
-                gift_agg = session.query(
-                    func.coalesce(func.sum(GiftMessage.total_value), 0),
-                    func.coalesce(func.sum(GiftMessage.gift_count), 0)
-                ).filter(
-                    GiftMessage.live_session_id == session_id
-                ).one()
-                reconciled_income = int(gift_agg[0])
-                reconciled_gift_count = int(gift_agg[1])
-
-                if reconciled_income != session_obj.total_income or reconciled_gift_count != session_obj.total_gift_count:
-                    logger.info(
-                        f"场次统计校正: session_id={session_id}, "
-                        f"income {session_obj.total_income} -> {reconciled_income}, "
-                        f"gift_count {session_obj.total_gift_count} -> {reconciled_gift_count}"
-                    )
-                    session_obj.total_income = reconciled_income
-                    session_obj.total_gift_count = reconciled_gift_count
-
-                session_obj.updated_at = get_china_now()
-                session.commit()
-                return True
-            return False
-        except Exception as e:
+            obj = session.query(LiveSession).filter_by(id=session_id).with_for_update().first()
+            if obj is None:
+                return False
+            if obj.status != 'ended':
+                self._reconcile_session(session, obj)
+                obj.status = 'ended'
+                obj.end_time = get_china_now()
+            elif obj.end_time is None:
+                obj.end_time = get_china_now()
+            if peak_viewer_count is not None:
+                obj.peak_viewer_count = max(obj.peak_viewer_count or 0, peak_viewer_count)
+            obj.updated_at = get_china_now()
+            session.commit()
+            return True
+        except Exception:
             session.rollback()
-            logger.error(f"结束直播场次失败: {e}")
+            logger.error('结束直播场次失败')
             return False
         finally:
             session.close()
 
+    def _reconcile_session(self, session, obj):
+        income, gifts = session.query(func.coalesce(func.sum(GiftMessage.total_value), 0),
+                                     func.coalesce(func.sum(GiftMessage.gift_count), 0)).filter(
+                                         GiftMessage.live_session_id == obj.id).one()
+        chats = session.query(func.count(ChatMessage.id)).filter(ChatMessage.live_session_id == obj.id).scalar() or 0
+        cutoff = (get_china_now() - timedelta(days=config.DATA_RETENTION_DAYS)).replace(tzinfo=None)
+        expired = config.DATA_RETENTION_DAYS > 0 and obj.start_time.replace(tzinfo=None) < cutoff
+        missing_gifts = not income and not gifts and (obj.total_income or obj.total_gift_count)
+        if not (expired and missing_gifts):
+            obj.total_income = float(income)
+            obj.total_gift_count = int(gifts)
+        if not (expired and chats == 0 and obj.total_chat_count):
+            obj.total_chat_count = int(chats)
+
     def update_session_stats(self, session_id: int, **kwargs) -> bool:
-        """更新直播场次统计"""
+        """Update snapshots while keeping the peak monotone in SQL."""
         session = self.get_session()
         try:
-            session_obj = session.query(LiveSession).filter(LiveSession.id == session_id).first()
-            if session_obj:
-                for key, value in kwargs.items():
-                    if hasattr(session_obj, key):
-                        setattr(session_obj, key, value)
-                session_obj.updated_at = get_china_now()
-                session.commit()
-                return True
-            return False
-        except Exception as e:
+            values = {key: value for key, value in kwargs.items() if key in LiveSession.__table__.columns}
+            if values.get('peak_viewer_count') is not None:
+                maximum = func.max if self.engine.dialect.name == 'sqlite' else func.greatest
+                values['peak_viewer_count'] = maximum(func.coalesce(LiveSession.peak_viewer_count, 0), values['peak_viewer_count'])
+            else:
+                values.pop('peak_viewer_count', None)
+            values['updated_at'] = get_china_now()
+            result = session.execute(update(LiveSession).where(LiveSession.id == session_id).values(**values))
+            session.commit()
+            return result.rowcount > 0
+        except Exception:
             session.rollback()
-            logger.error(f"更新直播场次统计失败: {e}")
+            logger.error('更新直播场次统计失败')
             return False
         finally:
             session.close()
@@ -1486,22 +1343,20 @@ class DataService:
     def increment_session_stats(self, session_id: int, income_delta: float = 0,
                                gift_count_delta: int = 0, chat_count_delta: int = 0,
                                like_count_delta: int = 0) -> bool:
-        """增量更新直播场次统计"""
+        """One SQL UPDATE prevents lost increments between collectors."""
         session = self.get_session()
         try:
-            session_obj = session.query(LiveSession).filter(LiveSession.id == session_id).first()
-            if session_obj:
-                session_obj.total_income += income_delta
-                session_obj.total_gift_count += gift_count_delta
-                session_obj.total_chat_count += chat_count_delta
-                session_obj.total_like_count += like_count_delta
-                session_obj.updated_at = get_china_now()
-                session.commit()
-                return True
-            return False
-        except Exception as e:
+            result = session.execute(update(LiveSession).where(LiveSession.id == session_id).values(
+                total_income=func.coalesce(LiveSession.total_income, 0) + income_delta,
+                total_gift_count=func.coalesce(LiveSession.total_gift_count, 0) + gift_count_delta,
+                total_chat_count=func.coalesce(LiveSession.total_chat_count, 0) + chat_count_delta,
+                total_like_count=func.coalesce(LiveSession.total_like_count, 0) + like_count_delta,
+                updated_at=get_china_now()))
+            session.commit()
+            return result.rowcount > 0
+        except Exception:
             session.rollback()
-            logger.error(f"增量更新直播场次统计失败: {e}")
+            logger.error('增量更新直播场次统计失败')
             return False
         finally:
             session.close()
@@ -1559,7 +1414,7 @@ class DataService:
 
             if end_date:
                 # 添加时间部分，确保包含整天
-                end_dt = datetime.fromisoformat(end_date + 'T23:59:59')
+                end_dt = datetime.fromisoformat(end_date + 'T23:59:59.999999')
                 # 添加时区信息
                 end_dt = end_dt.replace(tzinfo=CHINA_TZ)
                 query = query.filter(LiveSession.start_time <= end_dt)
@@ -1605,7 +1460,7 @@ class DataService:
 
             if end_date:
                 # 添加时间部分，确保包含整天
-                end_dt = datetime.fromisoformat(end_date + 'T23:59:59')
+                end_dt = datetime.fromisoformat(end_date + 'T23:59:59.999999')
                 # 添加时区信息
                 end_dt = end_dt.replace(tzinfo=CHINA_TZ)
                 query = query.filter(LiveSession.start_time <= end_dt)
@@ -1702,40 +1557,38 @@ class DataService:
             session.close()
 
     def cleanup_stale_live_sessions(self, stale_threshold_hours: int = 24) -> int:
-        """
-        清理长时间处于 'live' 状态但实际已结束的场次
-        :param stale_threshold_hours: 超过多少小时的 'live' 场次被认为已结束，默认24小时
-        :return: 清理的场次数量
-        """
-        from models.database import get_china_now
-        from datetime import timedelta
-
+        """Use observed last activity, including snapshots and persisted updates."""
         session = self.get_session()
         try:
-            # 计算阈值时间
-            threshold_time = get_china_now() - timedelta(hours=stale_threshold_hours)
-
-            # 查找所有超过阈值时间且状态仍为 'live' 的场次
-            stale_sessions = session.query(LiveSession).filter(
-                and_(
-                    LiveSession.status == 'live',
-                    LiveSession.start_time < threshold_time
-                )
-            ).all()
-
+            now = get_china_now().replace(tzinfo=None)
+            threshold = now - timedelta(hours=stale_threshold_hours)
+            candidates = session.query(LiveSession).filter(LiveSession.status == 'live', LiveSession.start_time < threshold).with_for_update().all()
             count = 0
-            for stale_session in stale_sessions:
-                stale_session.status = 'ended'
-                stale_session.end_time = stale_session.start_time + timedelta(hours=2)  # 假设直播2小时后结束
-                stale_session.updated_at = get_china_now()
+            for obj in candidates:
+                last_chat = session.query(func.max(ChatMessage.created_at)).filter(ChatMessage.live_session_id == obj.id).scalar()
+                last_gift = session.query(func.max(GiftMessage.created_at)).filter(GiftMessage.live_session_id == obj.id).scalar()
+                next_start = session.query(func.min(LiveSession.start_time)).filter(
+                    LiveSession.live_id == obj.live_id, LiveSession.start_time > obj.start_time).scalar()
+                snapshot_filters = [RoomStats.live_id == obj.live_id, RoomStats.stats_at >= obj.start_time]
+                if next_start:
+                    snapshot_filters.append(RoomStats.stats_at < next_start)
+                last_stats = session.query(func.max(RoomStats.stats_at)).filter(*snapshot_filters).scalar()
+                activities = [v.replace(tzinfo=None) for v in [obj.start_time, obj.updated_at, last_chat, last_gift, last_stats] if v]
+                last_activity = min(max(activities), now)
+                if last_activity >= threshold:
+                    continue
+                cutoff = now - timedelta(days=config.DATA_RETENTION_DAYS)
+                if config.DATA_RETENTION_DAYS == 0 or obj.start_time.replace(tzinfo=None) >= cutoff:
+                    self._reconcile_session(session, obj)
+                obj.status = 'ended'
+                obj.end_time = last_activity
+                obj.updated_at = get_china_now()
                 count += 1
-                logger.info(f"清理未结束的直播场次: id={stale_session.id}, live_id={stale_session.live_id}, start_time={stale_session.start_time}")
-
             session.commit()
             return count
-        except Exception as e:
+        except Exception:
             session.rollback()
-            logger.error(f"清理未结束场次失败: {e}")
+            logger.error('清理未结束场次失败')
             return 0
         finally:
             session.close()
@@ -1774,9 +1627,9 @@ class DataService:
                 chat_conditions.append(ChatMessage.user_id == user_id)
                 gift_conditions.append(GiftMessage.user_id == user_id)
             else:
-                keyword = f"%{user_name.strip()}%"
-                chat_conditions.append(ChatMessage.user_name.ilike(keyword))
-                gift_conditions.append(GiftMessage.user_name.ilike(keyword))
+                keyword = f"%{self._escape_like(user_name.strip())}%"
+                chat_conditions.append(ChatMessage.user_name.ilike(keyword, escape='\\'))
+                gift_conditions.append(GiftMessage.user_name.ilike(keyword, escape='\\'))
 
             # 如果指定了场次ID，按场次筛选
             if session_id:
@@ -1847,7 +1700,7 @@ class DataService:
             if resolved_user_id:
                 contrib_conditions.append(UserContribution.user_id == resolved_user_id)
             elif user_name:
-                contrib_conditions.append(UserContribution.user_name.ilike(f"%{user_name.strip()}%"))
+                contrib_conditions.append(UserContribution.user_name.ilike(f"%{self._escape_like(user_name.strip())}%", escape="\\"))
 
             user_contrib = None
             like_count = 0
@@ -1856,14 +1709,15 @@ class DataService:
                     and_(*contrib_conditions)
                 ).order_by(UserContribution.updated_at.desc()).all()
                 user_contrib = contrib_rows[0] if contrib_rows else None
-                like_count = sum(int(row.like_count or 0) for row in contrib_rows)
+                like_count = 0 if session_id is not None else sum(int(row.like_count or 0) for row in contrib_rows)
             user_avatar = user_contrib.user_avatar if user_contrib else None
             if user_contrib and not latest_chat and not latest_gift:
                 display_name = user_contrib.user_name
                 resolved_user_id = user_contrib.user_id
-                total_value = user_contrib.total_score or 0
-                gift_count = user_contrib.gift_count or 0
-                chat_count = user_contrib.chat_count or 0
+                if session_id is None and not start_date and not end_date:
+                    total_value = user_contrib.total_score or 0
+                    gift_count = user_contrib.gift_count or 0
+                    chat_count = user_contrib.chat_count or 0
 
             # 构建用户信息（含额外信息）
             user_info = {
@@ -1901,7 +1755,7 @@ class DataService:
                     total = chat_count
                     chat_query = chat_query.offset(offset).limit(limit)
 
-                    for msg in chat_query.all():
+                    for msg in (chat_query.limit(offset + limit) if message_type == 'all' else chat_query).all():
                         messages.append({
                             'id': msg.id,
                             'type': 'chat',
@@ -1916,7 +1770,7 @@ class DataService:
                         })
                 else:
                     # 返回所有类型，稍后合并排序
-                    for msg in chat_query.all():
+                    for msg in (chat_query.limit(offset + limit) if message_type == 'all' else chat_query).all():
                         messages.append({
                             'id': msg.id,
                             'type': 'chat',
@@ -1940,7 +1794,7 @@ class DataService:
                     total = gift_count
                     gift_query = gift_query.offset(offset).limit(limit)
 
-                    for msg in gift_query.all():
+                    for msg in (gift_query.limit(offset + limit) if message_type == 'all' else gift_query).all():
                         messages.append({
                             'id': msg.id,
                             'type': 'gift',
@@ -1957,7 +1811,7 @@ class DataService:
                         })
                 else:
                     # 返回所有类型
-                    for msg in gift_query.all():
+                    for msg in (gift_query.limit(offset + limit) if message_type == 'all' else gift_query).all():
                         messages.append({
                             'id': msg.id,
                             'type': 'gift',
@@ -2012,9 +1866,9 @@ class DataService:
 
         session = self.get_session()
         try:
-            keyword = f"%{user_name.strip()}%"
-            chat_conditions = [ChatMessage.user_name.ilike(keyword)]
-            gift_conditions = [GiftMessage.user_name.ilike(keyword)]
+            keyword = f"%{self._escape_like(user_name.strip())}%"
+            chat_conditions = [ChatMessage.user_name.ilike(keyword, escape='\\')]
+            gift_conditions = [GiftMessage.user_name.ilike(keyword, escape='\\')]
             related_ids = self._related_live_ids(session, live_id) if live_id else []
 
             if related_ids:
@@ -2066,7 +1920,8 @@ class DataService:
                 func.max(GiftMessage.user_name).label('user_name'),
                 func.max(GiftMessage.user_level).label('user_level'),
                 func.max(GiftMessage.fans_club_level).label('fans_club_level'),
-                func.count(GiftMessage.id).label('gift_count'),
+                func.sum(GiftMessage.gift_count).label('gift_count'),
+                func.count(GiftMessage.id).label('gift_message_count'),
                 func.sum(GiftMessage.total_value).label('total_value'),
                 func.max(GiftMessage.created_at).label('last_seen_at')
             ).filter(
@@ -2089,6 +1944,7 @@ class DataService:
                         'fans_club_level': row.fans_club_level or 0,
                         'chat_count': 0,
                         'gift_count': 0,
+                        'gift_message_count': 0,
                         'like_count': 0,
                         'total_value': 0,
                         'last_seen_at': row.last_seen_at,
@@ -2113,6 +1969,7 @@ class DataService:
             for row in gift_rows:
                 item = ensure_user(row)
                 item['gift_count'] = int(row.gift_count or 0)
+                item['gift_message_count'] = int(row.gift_message_count or 0)
                 item['total_value'] = int(row.total_value or 0)
                 item['user_level'] = max(item['user_level'] or 0, row.user_level or 0)
                 item['fans_club_level'] = max(item['fans_club_level'] or 0, row.fans_club_level or 0)
@@ -2122,7 +1979,7 @@ class DataService:
                     item['anchor_name'] = row.anchor_name
 
             if not users and not session_id and not start_date and not end_date:
-                contrib_conditions = [UserContribution.user_name.ilike(keyword)]
+                contrib_conditions = [UserContribution.user_name.ilike(keyword, escape='\\')]
                 if related_ids:
                     contrib_conditions.append(UserContribution.live_id.in_(related_ids))
                 contrib_rows = session.query(UserContribution).filter(
@@ -2179,6 +2036,7 @@ class DataService:
                     existing = merged[uid]
                     existing['chat_count'] = (existing['chat_count'] or 0) + (item['chat_count'] or 0)
                     existing['gift_count'] = (existing['gift_count'] or 0) + (item['gift_count'] or 0)
+                    existing['gift_message_count'] = existing.get('gift_message_count', 0) + item.get('gift_message_count', 0)
                     existing['like_count'] = (existing['like_count'] or 0) + (item['like_count'] or 0)
                     existing['total_value'] = (existing['total_value'] or 0) + (item['total_value'] or 0)
                     existing['user_level'] = max(existing['user_level'] or 0, item['user_level'] or 0)
@@ -2204,7 +2062,7 @@ class DataService:
             )[:limit]
 
             for item in results:
-                item['total_messages'] = (item['chat_count'] or 0) + (item['gift_count'] or 0)
+                item['total_messages'] = (item['chat_count'] or 0) + item.pop('gift_message_count', item['gift_count'] or 0)
                 item['last_seen_at'] = item['last_seen_at'].isoformat() if item['last_seen_at'] else None
 
             return results

@@ -13,6 +13,8 @@ const app = new Vue({
         selectedYear: '',
         minDate: '',  // 可选的最早日期
         maxDate: '',  // 可选的最晚日期
+        todayDate: '',  // 今日日期上限
+        loadRequestSeq: 0,
         stats: {},
         sessions: [],
         contributors: [],  // 贡献榜
@@ -43,6 +45,7 @@ const app = new Vue({
         userSearchHasSearched: false,
         userSearchFocused: false,
         userSearchDebounceTimer: null,
+        userSearchBlurTimer: null,
         userSearchRequestSeq: 0,
         // 场次详情相关
         showSessionModal: false,
@@ -109,21 +112,12 @@ const app = new Vue({
                 this.searchStatsUserByName({ silent: true });
             }, 350);
         },
-        selectedRoomId() {
-            if (this.activeRankTab === 'like') {
-                this.loadTopLikers();
-            } else if (this.hasSearched) {
-                // 切换房间后清空已搜索结果，避免贡献榜表格显示旧房间数据，
-                // 用户需要重新点击"查询统计"才会拉新房间的贡献榜。
-                this.contributors = [];
-                this.hasSearched = false;
-            }
-        },
         chartMetric() {
             this.$nextTick(() => this.renderTrendChart());
         }
     },
     async mounted() {
+        this.todayDate = this.formatDateForInput(new Date());
         await Promise.all([
             this.loadRooms(),
             this.loadDateRange()
@@ -132,14 +126,35 @@ const app = new Vue({
         this.initPeriodDefaults();
         this._trendChartResizeHandler = () => this.resizeTrendChart();
         window.addEventListener('resize', this._trendChartResizeHandler);
+        this._keydownHandler = (event) => {
+            if (event.key !== 'Escape') return;
+            if (this.showUserMessagesModal) {
+                this.closeUserMessagesModal();
+            } else if (this.showSessionModal) {
+                this.closeSessionModal();
+            } else if (this.userSearchFocused) {
+                this.userSearchFocused = false;
+            }
+        };
+        document.addEventListener('keydown', this._keydownHandler);
         // 不在 mounted 时自动加载数据，等待用户点击查询
     },
     beforeDestroy() {
         if (this.userSearchDebounceTimer) {
             clearTimeout(this.userSearchDebounceTimer);
         }
+        if (this.userSearchBlurTimer) {
+            clearTimeout(this.userSearchBlurTimer);
+        }
+        if (this._resizeRafId) {
+            cancelAnimationFrame(this._resizeRafId);
+            this._resizeRafId = null;
+        }
         if (this._trendChartResizeHandler) {
             window.removeEventListener('resize', this._trendChartResizeHandler);
+        }
+        if (this._keydownHandler) {
+            document.removeEventListener('keydown', this._keydownHandler);
         }
         if (this._trendChart) {
             this._trendChart.dispose();
@@ -228,15 +243,8 @@ const app = new Vue({
             const metric = this.currentChartMetricConfig();
             return Number(row[metric.field] || 0);
         },
-        trendMaxValue() {
-            const values = this.trendRows().map(row => this.trendValue(row));
-            return Math.max(1, ...values);
-        },
         chartHasSignal() {
             return this.trendRows().some(row => this.trendValue(row) > 0);
-        },
-        chartHasRows() {
-            return this.trendRows().length > 0;
         },
         normalizeChartMetric() {
             if (this.chartHasSignal()) return;
@@ -246,32 +254,6 @@ const app = new Vue({
             if (metricWithSignal) {
                 this.chartMetric = metricWithSignal.key;
             }
-        },
-        trendChartPointObjects() {
-            const rows = this.trendRows();
-            const max = this.trendMaxValue();
-            if (rows.length === 0) return [];
-
-            return rows.map((row, index) => {
-                const x = rows.length === 1 ? 50 : (index / (rows.length - 1)) * 100;
-                const y = 42 - (this.trendValue(row) / max) * 34;
-                return {
-                    key: row.date + '-' + index,
-                    x: Number(x.toFixed(2)),
-                    y: Number(y.toFixed(2)),
-                    value: this.trendValue(row)
-                };
-            });
-        },
-        trendChartPoints() {
-            return this.trendChartPointObjects()
-                .map(point => `${point.x},${point.y}`)
-                .join(' ');
-        },
-        trendAreaPoints() {
-            const line = this.trendChartPoints();
-            if (!line) return '';
-            return `0,42 ${line} 100,42`;
         },
         trendTotalValue() {
             const rows = this.trendRows();
@@ -318,9 +300,15 @@ const app = new Vue({
             this.resizeTrendChart();
         },
         resizeTrendChart() {
-            if (this._trendChart) {
-                this._trendChart.resize();
+            if (!this._trendChart || this._resizeRafId) {
+                return;
             }
+            this._resizeRafId = requestAnimationFrame(() => {
+                this._resizeRafId = null;
+                if (this._trendChart) {
+                    this._trendChart.resize();
+                }
+            });
         },
         buildTrendChartOption() {
             const rows = this.trendRows();
@@ -387,9 +375,7 @@ const app = new Vue({
                     axisLabel: {
                         color: '#94a3b8',
                         fontSize: 11,
-                        formatter: value => this.chartMetric === 'income'
-                            ? this.formatNumber(value)
-                            : this.formatNumber(value)
+                        formatter: value => this.formatNumber(value)
                     },
                     splitLine: {
                         lineStyle: {
@@ -464,7 +450,8 @@ const app = new Vue({
                 }
             }
 
-            this.customEndDate = this.formatDateForInput(today);
+            this.todayDate = this.formatDateForInput(today);
+            this.customEndDate = this.todayDate;
             this.customStartDate = this.formatDateForInput(weekAgo);
         },
         initPeriodDefaults() {
@@ -542,6 +529,9 @@ const app = new Vue({
                     if (!this.customStartDate || !this.customEndDate) {
                         return null;
                     }
+                    if (this.customStartDate > this.customEndDate) {
+                        return null;
+                    }
                     startDate = new Date(this.customStartDate + 'T00:00:00');
                     endDate = new Date(this.customEndDate + 'T23:59:59');
                     break;
@@ -566,12 +556,17 @@ const app = new Vue({
             };
         },
         async loadData() {
+            if (this.timeRange === 'custom' && this.customStartDate && this.customEndDate && this.customStartDate > this.customEndDate) {
+                alert('开始日期不能晚于结束日期');
+                return;
+            }
             const dateRange = this.getDateRange();
             if (!dateRange) {
                 alert('请选择完整的统计时间');
                 return;
             }
 
+            const requestSeq = ++this.loadRequestSeq;
             this.loading = true;
             const params = new URLSearchParams({
                 start_date: dateRange.start.split('T')[0],
@@ -586,6 +581,9 @@ const app = new Vue({
 
                 const statsResponse = await fetch(statsUrl);
                 const statsData = await statsResponse.json();
+                if (requestSeq !== this.loadRequestSeq) {
+                    return;
+                }
                 if (statsData.stats) {
                     this.stats = statsData.stats;
                     this.normalizeChartMetric();
@@ -593,12 +591,18 @@ const app = new Vue({
 
                 // 加载贡献榜数据（第一页）
                 await this.loadContributors(1);
+                if (requestSeq !== this.loadRequestSeq) {
+                    return;
+                }
 
                 // 如果选择了房间，加载场次列表
                 if (this.selectedRoomId) {
                     const sessionsUrl = `/api/rooms/${encodeURIComponent(this.selectedRoomId)}/sessions?${params}`;
                     const sessionsResponse = await fetch(sessionsUrl);
                     const sessionsData = await sessionsResponse.json();
+                    if (requestSeq !== this.loadRequestSeq) {
+                        return;
+                    }
                     if (sessionsData.sessions) {
                         this.sessions = sessionsData.sessions;
                     }
@@ -610,9 +614,13 @@ const app = new Vue({
                 this.hasSearched = true;
                 this.$nextTick(() => this.renderTrendChart());
             } catch (error) {
-                console.error('加载数据失败:', error);
+                if (requestSeq === this.loadRequestSeq) {
+                    console.error('加载数据失败:', error);
+                }
             } finally {
-                this.loading = false;
+                if (requestSeq === this.loadRequestSeq) {
+                    this.loading = false;
+                }
             }
         },
         async loadContributors(page = 1) {
@@ -691,10 +699,15 @@ const app = new Vue({
             return pages;
         },
         async loadRoomData() {
+            const wasLikeTab = this.activeRankTab === 'like';
+            const wasSearched = this.hasSearched;
             this.sessions = [];
             this.contributors = [];
             this.contributorPagination = { page: 1, page_size: 20, total: 0, total_pages: 1 };
-            this.hasSearched = false;
+            // 点赞榜切回“全部房间”时保留面板可见并刷新全部房间统计，其余场景等待重新查询
+            if (!this.selectedRoomId && !(wasLikeTab && wasSearched)) {
+                this.hasSearched = false;
+            }
             this.userSearchResults = [];
             this.userSearchHasSearched = false;
             this.userSearchError = '';
@@ -702,7 +715,25 @@ const app = new Vue({
             await this.loadRoomDateRange();
             // 重新初始化自定义日期
             this.initCustomDates();
-            await this.autoLoadSelectedRoomStats();
+            const tasks = [];
+            if (wasLikeTab) {
+                tasks.push(this.loadTopLikers());
+            }
+            if (this.selectedRoomId) {
+                tasks.push(this.autoLoadSelectedRoomStats());
+            } else if (wasLikeTab && wasSearched) {
+                tasks.push(this.loadData());
+            }
+            await Promise.all(tasks);
+        },
+        onUserSearchBlur() {
+            if (this.userSearchBlurTimer) {
+                clearTimeout(this.userSearchBlurTimer);
+            }
+            this.userSearchBlurTimer = setTimeout(() => {
+                this.userSearchFocused = false;
+                this.userSearchBlurTimer = null;
+            }, 180);
         },
         async searchStatsUserByName(options = {}) {
             const userName = (this.userNameSearch || '').trim();
@@ -765,6 +796,10 @@ const app = new Vue({
             }
         },
         selectStatsSearchedUser(user) {
+            if (this.userSearchBlurTimer) {
+                clearTimeout(this.userSearchBlurTimer);
+                this.userSearchBlurTimer = null;
+            }
             const dateRange = this.getDateRange();
             this.userSearchError = '';
             this.userSearchFocused = false;
@@ -939,17 +974,6 @@ const app = new Vue({
             const avg = Number(this.stats.avg_likes_per_active_session || 0);
             return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 次';
         },
-        formatDuration(seconds) {
-            if (!seconds || seconds === 0) return '0分钟';
-
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-
-            if (hours > 0) {
-                return `${hours}小时${minutes}分钟`;
-            }
-            return `${minutes}分钟`;
-        },
         formatDurationParts(seconds) {
             if (!seconds || seconds <= 0) {
                 return { main: '0', unit: '分钟' };
@@ -1002,8 +1026,8 @@ const app = new Vue({
         },
         // 用户消息模态框方法
         async openUserMessagesModal(userId, userName, options = {}) {
-            this.showUserMessagesModal = !options.defer_show;
-            this.userMessagesLoading = !options.defer_show;
+            this.showUserMessagesModal = true;
+            this.userMessagesLoading = true;
             this.userMessagesTab = 'all';
 
             // 设置查询参数
@@ -1038,11 +1062,7 @@ const app = new Vue({
                 }
             };
 
-            const found = await this.loadUserMessages({ showLoading: !options.defer_show });
-            if (options.defer_show && found) {
-                this.showUserMessagesModal = true;
-            }
-            return found;
+            return await this.loadUserMessages();
         },
         closeUserMessagesModal() {
             this.showUserMessagesModal = false;
@@ -1072,13 +1092,10 @@ const app = new Vue({
                 end_date: null
             };
         },
-        async loadUserMessages(options = {}) {
+        async loadUserMessages() {
             if (!this.userMessagesQuery.user_id && !this.userMessagesQuery.user_name) return false;
 
-            const showLoading = options.showLoading !== false;
-            if (showLoading) {
-                this.userMessagesLoading = true;
-            }
+            this.userMessagesLoading = true;
             try {
                 const params = new URLSearchParams({
                     type: this.userMessagesTab,
@@ -1099,7 +1116,7 @@ const app = new Vue({
                 }
 
                 const url = this.userMessagesQuery.live_id
-                    ? `/api/rooms/${this.userMessagesQuery.live_id}/user-messages?${params}`
+                    ? `/api/rooms/${encodeURIComponent(this.userMessagesQuery.live_id)}/user-messages?${params}`
                     : `/api/rooms/user-messages?${params}`;
                 const response = await fetch(url);
                 const data = await response.json();

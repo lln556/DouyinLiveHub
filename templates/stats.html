@@ -6,8 +6,8 @@
     <title>直播数据统计</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico">
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14"></script>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="/static/vendor/vue.min.js"></script>
+    <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
     <style>
         [v-cloak] {
             display: none !important;
@@ -93,23 +93,6 @@
         }
         .chart-tab {
             min-width: 64px;
-        }
-        .chart-zero-state {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            pointer-events: none;
-        }
-        .chart-zero-state > div {
-            background: rgba(255, 255, 255, 0.86);
-            border: 1px solid rgba(229, 231, 235, 0.9);
-            border-radius: 8px;
-            padding: 10px 14px;
-            color: #6b7280;
-            font-size: 13px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
         }
         .table-panel {
             background: #fff;
@@ -282,9 +265,11 @@
                 <a href="/" class="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 text-sm">
                     返回首页
                 </a>
-                <a href="/logout" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm">
-                    退出登录
-                </a>
+                <form method="post" action="/logout" class="inline">
+                    <button type="submit" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm">
+                        退出登录
+                    </button>
+                </form>
             </div>
         </div>
 
@@ -347,11 +332,11 @@
                 <template v-if="timeRange === 'custom'">
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">开始日期</label>
-                        <input v-model="customStartDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <input v-model="customStartDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="todayDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                     </div>
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-gray-600 mb-1">结束日期</label>
-                        <input v-model="customEndDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="maxDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <input v-model="customEndDate" @change="autoLoadSelectedRoomStats" type="date" :min="minDate" :max="todayDate" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm">
                     </div>
                 </template>
 
@@ -361,7 +346,7 @@
                         <input
                             v-model.trim="userNameSearch"
                             @focus="userSearchFocused = true"
-                            @blur="setTimeout(() => userSearchFocused = false, 180)"
+                            @blur="onUserSearchBlur"
                             type="text"
                             class="w-full min-w-0 pl-9 pr-20 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-sm"
                             placeholder="输入用户名自动搜索">
@@ -385,7 +370,7 @@
                                     @mousedown.prevent="selectStatsSearchedUser(user)"
                                     class="w-full px-3 py-2 flex items-center justify-between hover:bg-indigo-50 border-b last:border-b-0 text-left">
                                     <div class="flex items-center min-w-0">
-                                        <img v-if="user.user_avatar" :src="user.user_avatar" class="w-8 h-8 rounded-full mr-2 object-cover">
+                                        <img v-if="user.user_avatar" :src="user.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
                                         <div v-else class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold mr-2"
                                              v-text="(user.nickname || user.user_id || 'U').substring(0, 1)"></div>
                                         <div class="min-w-0">
@@ -598,7 +583,7 @@
                                     </td>
                                     <td class="px-3 py-2 whitespace-nowrap">
                                         <div class="flex items-center">
-                                            <img v-if="contributor.user_avatar" :src="contributor.user_avatar" class="w-8 h-8 rounded-full mr-2 object-cover">
+                                            <img v-if="contributor.user_avatar" :src="contributor.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
                                             <div v-else class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs mr-2" v-text="(contributor.nickname || contributor.user_id || '').substring(0, 1)"></div>
                                             <div class="min-w-0 flex items-center gap-1">
                                                 <div class="text-sm font-medium text-gray-900 truncate clickable-user"
@@ -629,7 +614,7 @@
                                     </td>
                                     <td class="px-3 py-2 whitespace-nowrap">
                                         <div class="flex items-center">
-                                            <img v-if="liker.user_avatar" :src="liker.user_avatar" class="w-8 h-8 rounded-full mr-2 object-cover">
+                                            <img v-if="liker.user_avatar" :src="liker.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
                                             <div v-else class="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold mr-2"
                                                  v-text="(liker.user_name || liker.user_id || 'U').substring(0, 1)"></div>
                                             <span class="text-sm font-medium text-gray-900 truncate clickable-user"
@@ -906,6 +891,7 @@
                                     </div>
                                     <div class="text-gray-700 mt-1 text-sm">
                                         送出 <span class="font-semibold text-pink-600" v-text="gift.gift_name"></span>
+                                        <span v-if="gift.gift_count > 1" class="text-sm text-gray-600"> x{{ gift.gift_count }}</span>
                                         <span v-if="gift.combo_count > 1" class="text-sm text-gray-500"> (连击 x{{ gift.combo_count }})</span>
                                     </div>
                                 </div>
@@ -968,7 +954,7 @@
                                         </td>
                                         <td class="px-4 py-2">
                                             <div class="flex items-center gap-2">
-                                                <img v-if="contributor.user_avatar" :src="contributor.user_avatar" class="w-8 h-8 rounded-full">
+                                                <img v-if="contributor.user_avatar" :src="contributor.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full">
                                                 <div v-else class="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-500 text-xs">
                                                     {{ (contributor.nickname || contributor.user_id || '').substring(0, 1) }}
                                                 </div>
@@ -1002,6 +988,7 @@
                             <img
                                 v-if="userMessagesData.user.avatar"
                                 :src="userMessagesData.user.avatar"
+                                referrerpolicy="no-referrer"
                                 class="user-avatar-large mr-4">
                             <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-2xl font-bold mr-4"
                                  v-text="(userMessagesData.user.nickname || userMessagesData.user.user_id || 'U').substring(0, 1)"></div>
@@ -1157,7 +1144,7 @@
         {% endraw %}
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="/static/vendor/echarts.min.js"></script>
     <script src="/static/js/stats.js"></script>
 </body>
 </html>
