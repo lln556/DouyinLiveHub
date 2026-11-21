@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from crawler.fetcher import decompress_push_frame_payload
 from protobuf.douyin import BindingGiftMessage, PushFrame, Response, ChatMessage, GiftMessage, LikeMessage, RoomUserSeqMessage, ControlMessage
 from utils.logger import get_logger
+from utils.gift_packet_sampler import gift_packet_sampler
 import config
 
 
@@ -205,15 +206,19 @@ class WebDouyinLiveFetcher:
                         if method == 'WebcastChatMessage':
                             self._handle_chat_message(ChatMessage().parse(msg.payload))
                         elif method == 'WebcastGiftMessage':
-                            self._handle_gift_message(GiftMessage().parse(msg.payload))
+                            self._handle_gift_message(GiftMessage().parse(msg.payload),
+                                                      raw_payload=msg.payload, source_method=method)
                         elif method == 'WebcastBindingGiftMessage':
-                            self._handle_binding_gift_message(BindingGiftMessage().parse(msg.payload))
+                            self._handle_binding_gift_message(BindingGiftMessage().parse(msg.payload),
+                                                              raw_payload=msg.payload, source_method=method)
                         elif method == 'WebcastLikeMessage':
                             self._handle_like_message(LikeMessage().parse(msg.payload))
                         elif method == 'WebcastRoomUserSeqMessage':
                             self._handle_stats_message(RoomUserSeqMessage().parse(msg.payload))
                         elif method == 'WebcastControlMessage':
                             self._handle_control_message(ControlMessage().parse(msg.payload))
+                        else:
+                            gift_packet_sampler.sample_unhandled_method(method, msg.payload)
                     except Exception as e:
                         self.log.error(f"处理消息出错 [method={method}]: {e}")
         except Exception as e:
@@ -279,7 +284,7 @@ class WebDouyinLiveFetcher:
             for key in expired:
                 del self.monitored_room.combo_gifts[key]
 
-    def _handle_binding_gift_message(self, binding_msg):
+    def _handle_binding_gift_message(self, binding_msg, raw_payload=b'', source_method='WebcastBindingGiftMessage'):
         """绑定消息沿用礼物记账入口，缺失的内部消息 ID 从外层补齐。"""
         inner = getattr(binding_msg, 'msg', None)
         if inner is None or not (getattr(getattr(inner, 'gift', None), 'name', '')
@@ -289,10 +294,17 @@ class WebDouyinLiveFetcher:
         if (not getattr(getattr(inner, 'common', None), 'msg_id', 0)
                 and getattr(outer_common, 'msg_id', 0)):
             inner.common = outer_common
-        self._handle_gift_message(inner)
+        self._handle_gift_message(inner, raw_payload=raw_payload, source_method=source_method)
 
     @staticmethod
     def _resolve_gift_unit_price(gift_struct, tray_info=None, extra_json_blobs=()) -> float:
+        """保留原有只返回价格的调用接口。"""
+        return WebDouyinLiveFetcher._resolve_gift_unit_price_with_source(
+            gift_struct, tray_info, extra_json_blobs,
+        )[0]
+
+    @staticmethod
+    def _resolve_gift_unit_price_with_source(gift_struct, tray_info=None, extra_json_blobs=()) -> tuple[float, str]:
         """按配置、进阶等级、扩展 JSON、基础钻石数的顺序解析单价。"""
         gift_name = (getattr(gift_struct, 'name', '') or '').strip()
         # 支持测试和运行进程热更新环境配置，无需重新导入 config 模块。
@@ -300,14 +312,30 @@ class WebDouyinLiveFetcher:
         overrides = (config.parse_gift_price_overrides(raw_overrides) if raw_overrides.strip()
                      else config.GIFT_PRICE_OVERRIDES)
         if gift_name in overrides:
-            return float(overrides[gift_name])
+            source = 'builtin_override'
+            if raw_overrides.strip():
+                try:
+                    configured = json.loads(raw_overrides)
+                except (ValueError, TypeError):
+                    configured = None
+                if isinstance(configured, dict):
+                    for key, value in configured.items():
+                        if (isinstance(key, str) and key.strip() == gift_name
+                                and isinstance(value, (int, float)) and not isinstance(value, bool)
+                                and value >= 0 and math.isfinite(value)):
+                            source = 'env_override'
+                            break
+            elif (gift_name not in config.SPECIAL_GIFT_DIAMOND_OVERRIDES
+                  or overrides[gift_name] != config.SPECIAL_GIFT_DIAMOND_OVERRIDES[gift_name]):
+                source = 'env_override'
+            return float(overrides[gift_name]), source
         base_diamond = float(getattr(gift_struct, 'diamond_count', 0) or 0)
         buff_level = int(getattr(tray_info, 'buff_level', 0) or 0)
         if buff_level > 0:
             for buff in getattr(gift_struct, 'gift_buff_infos', None) or []:
                 price = getattr(buff, 'buff_diamond_count', 0) or 0
                 if getattr(buff, 'buff_level', 0) == buff_level and price > 0:
-                    return float(price)
+                    return float(price), 'buff_level'
         price_keys = ('buff_diamond_count', 'real_diamond_count', 'total_diamond_count', 'diamond_count')
         for blob in extra_json_blobs:
             if not isinstance(blob, str) or not blob.strip():
@@ -325,10 +353,10 @@ class WebDouyinLiveFetcher:
                     value = candidate.get(key)
                     if (isinstance(value, (int, float)) and not isinstance(value, bool)
                             and value > base_diamond and math.isfinite(value)):
-                        return float(value)
-        return base_diamond
+                        return float(value), 'extra_json'
+        return base_diamond, 'base_diamond'
 
-    def _handle_gift_message(self, gift_msg):
+    def _handle_gift_message(self, gift_msg, raw_payload=b'', source_method='WebcastGiftMessage'):
         """每个成功落库的礼物增量只记账一次，重连续用房间级缓存。"""
         self.last_gift_time = time.time()
         fields = self._message_user_fields(gift_msg.user)
@@ -336,12 +364,12 @@ class WebDouyinLiveFetcher:
         series_items = [s for s in (getattr(gift_msg, 'series_gift_data', None) or [])
                         if getattr(getattr(s, 'gift_struct', None), 'name', '')]
         gift_name = outer_name
-        gift_price = self._resolve_gift_unit_price(
+        gift_price, price_source = self._resolve_gift_unit_price_with_source(
             gift_msg.gift, tray_info=getattr(gift_msg, 'tray_info', None),
             extra_json_blobs=(getattr(gift_msg, 'diy_item_info', ''),
                               getattr(gift_msg, 'interact_gift_info', ''),
                               getattr(gift_msg, 'gift_play_param', '')),
-        ) if not series_items else 0
+        ) if not series_items else (0.0, 'series_children')
         gift_id = str(getattr(gift_msg, 'gift_id', '') or '')
         group_id = str(gift_msg.group_id) if getattr(gift_msg, 'group_id', 0) else None
         if group_id == '0':
@@ -360,6 +388,17 @@ class WebDouyinLiveFetcher:
         avatar_urls = getattr(getattr(gift_msg.user, 'avatar_thumb', None), 'url_list_list', None)
         avatar = avatar_urls[0] if avatar_urls else None
         data_service = self.monitored_room.manager.data_service
+
+        with self.monitored_room.data_lock:
+            is_remembered_replay = bool(dedupe_key and dedupe_key in self.monitored_room.trace_dedupe_set)
+        if not is_remembered_replay:
+            try:
+                gift_packet_sampler.sample_gift_message(
+                    method=source_method, raw_payload=raw_payload, gift_msg=gift_msg,
+                    resolved_price=gift_price, price_source=price_source,
+                )
+            except Exception:
+                self.log.debug('礼物诊断采样失败，继续正常记账')
 
         if series_items:
             payloads = []

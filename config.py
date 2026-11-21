@@ -50,14 +50,6 @@ def parse_gift_price_overrides(raw_value=None) -> dict:
     return overrides
 
 
-class Config:
-    SPECIAL_GIFT_DIAMOND_OVERRIDES = SPECIAL_GIFT_DIAMOND_OVERRIDES
-    GIFT_PRICE_OVERRIDES = parse_gift_price_overrides()
-
-
-GIFT_PRICE_OVERRIDES = Config.GIFT_PRICE_OVERRIDES
-
-
 def _is_running_in_docker() -> bool:
     """检测当前进程是否运行在容器内。"""
     if Path('/.dockerenv').exists():
@@ -75,6 +67,24 @@ def _get_bool_env(name: str, default: bool) -> bool:
     if raw_value is None or raw_value.strip() == '':
         return default
     return raw_value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+GIFT_PACKET_SAMPLING_ENABLED = _get_bool_env('GIFT_PACKET_SAMPLING_ENABLED', True)
+GIFT_PACKET_SAMPLE_FILE = os.getenv('GIFT_PACKET_SAMPLE_FILE', str(BASE_DIR / 'logs' / 'gift_packet_samples.jsonl'))
+GIFT_PACKET_SAMPLE_MAX_BYTES = int(os.getenv('GIFT_PACKET_SAMPLE_MAX_BYTES', str(2 * 1024 * 1024)))
+GIFT_PACKET_SAMPLE_PER_KEY_LIMIT = int(os.getenv('GIFT_PACKET_SAMPLE_PER_KEY_LIMIT', '5'))
+
+
+class Config:
+    SPECIAL_GIFT_DIAMOND_OVERRIDES = SPECIAL_GIFT_DIAMOND_OVERRIDES
+    GIFT_PRICE_OVERRIDES = parse_gift_price_overrides()
+    GIFT_PACKET_SAMPLING_ENABLED = GIFT_PACKET_SAMPLING_ENABLED
+    GIFT_PACKET_SAMPLE_FILE = GIFT_PACKET_SAMPLE_FILE
+    GIFT_PACKET_SAMPLE_MAX_BYTES = GIFT_PACKET_SAMPLE_MAX_BYTES
+    GIFT_PACKET_SAMPLE_PER_KEY_LIMIT = GIFT_PACKET_SAMPLE_PER_KEY_LIMIT
+
+
+GIFT_PRICE_OVERRIDES = Config.GIFT_PRICE_OVERRIDES
 
 
 def _resolve_secret_key() -> str:

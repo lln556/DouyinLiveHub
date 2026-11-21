@@ -53,6 +53,9 @@ services:
       - LOG_COMPRESSION=${LOG_COMPRESSION:-zip}
       - ERROR_LOG_ROTATION=${ERROR_LOG_ROTATION:-5 MB}
       - STATUS_DISPLAY_ENABLED=${STATUS_DISPLAY_ENABLED:-False}
+      # 礼物价格覆盖与脱敏诊断采样
+      - GIFT_PRICE_OVERRIDES=${GIFT_PRICE_OVERRIDES:-}
+      - GIFT_PACKET_SAMPLING_ENABLED=${GIFT_PACKET_SAMPLING_ENABLED:-True}
     volumes:
       # 映射代码目录 (支持热更新)
       - .:/app
