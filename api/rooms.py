@@ -811,12 +811,12 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
     def _search_users_response(live_id=None):
         """按用户名搜索匹配用户列表。"""
         try:
-            user_name = (
-                request.args.get('user_name')
-                or request.args.get('username')
-                or request.args.get('keyword')
-                or ''
-            ).strip()
+            raw_user_name = ''
+            for param_name in ('user_name', 'username', 'keyword'):
+                val = request.args.get(param_name)
+                if val is not None and val != '':
+                    raw_user_name = val
+                    break
             query_live_id = (request.args.get('live_id') or '').strip() or None
             effective_live_id = live_id or query_live_id
             session_id = _parse_int_param(request.args.get('session_id'), 'session_id', None, 1, 2147483647)
@@ -824,12 +824,14 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             end_date = request.args.get('end_date')
             limit = _parse_int_param(request.args.get('limit'), 'limit', 30, 1, 100)
 
-            if not user_name:
+            if raw_user_name == '':
                 return jsonify({'error': '请提供 user_name 参数'}), 400
+            if len(raw_user_name) > 100:
+                return jsonify({'error': '用户名过长'}), 400
 
             users = data_service.search_users_by_name(
                 live_id=effective_live_id,
-                user_name=user_name,
+                user_name=raw_user_name,
                 session_id=session_id,
                 start_date=start_date,
                 end_date=end_date,

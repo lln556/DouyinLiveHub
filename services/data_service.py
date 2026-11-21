@@ -3,8 +3,10 @@
 封装所有数据库操作
 """
 from datetime import datetime, timedelta
+import re
+import unicodedata
 from typing import List, Optional, Dict, Any
-from sqlalchemy import create_engine, and_, or_, func, text, update, select, tuple_
+from sqlalchemy import create_engine, and_, or_, func, text, update, select, tuple_, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import make_url
@@ -16,6 +18,30 @@ from models.database import Base, LiveRoom, ChatMessage, GiftMessage, RoomStats,
 from utils.logger import get_logger
 
 logger = get_logger("data_service")
+
+
+_EXTRA_BLANK_CODEPOINTS = {
+    0x00AD, 0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5,
+    *range(0x180B, 0x1810), *range(0x2000, 0x2010), *range(0x2028, 0x2030),
+    *range(0x205F, 0x2070), 0x2800, 0x3000, 0x3164,
+    *range(0xFE00, 0xFE10), 0xFEFF, 0xFFA0, *range(0xFFF9, 0xFFFC),
+}
+
+
+def is_blank_nickname(value: Optional[str]) -> bool:
+    """Identify nicknames made entirely of whitespace or invisible characters."""
+    if value is None or value == '':
+        return True
+    return all(ch.isspace() or ord(ch) in _EXTRA_BLANK_CODEPOINTS
+               or unicodedata.category(ch) in ('Zs', 'Zl', 'Zp', 'Cf', 'Cc')
+               for ch in value)
+
+
+def is_blank_search_query(raw_query: Optional[str]) -> bool:
+    """Nonempty blank input and explicit labels request blank nicknames."""
+    return (isinstance(raw_query, str) and len(raw_query) > 0
+            and (is_blank_nickname(raw_query)
+                 or raw_query.strip() in ('空白昵称', '[空白昵称]')))
 
 
 class DataService:
@@ -35,6 +61,9 @@ class DataService:
             pool_recycle=3600,
             **pool_options
         )
+        if make_url(self.database_url).get_backend_name() == 'sqlite':
+            event.listen(self.engine, 'connect', lambda dbapi_conn, _: dbapi_conn.create_function(
+                'is_blank_nickname', 1, lambda s: 1 if is_blank_nickname(s) else 0))
         self.SessionLocal = sessionmaker(
             autocommit=False,
             autoflush=False,
@@ -577,7 +606,8 @@ class DataService:
                                  gender: int = None, follower_count: int = None,
                                  following_count: int = None, age_range: int = None,
                                  fans_club_level: int = None,
-                                 user_level: int = None) -> UserContribution:
+                                 user_level: int = None,
+                                 display_id: str = None) -> UserContribution:
         """Atomically add counters; replace only newly observed profile fields."""
         session = self.get_session()
         try:
@@ -592,6 +622,9 @@ class DataService:
             for key, val in profile.items():
                 if val is not None and val > 0:
                     values[key] = val
+            clean_display_id = (display_id or '').strip()[:100] or None
+            if clean_display_id:
+                values['display_id'] = clean_display_id
             insert = sqlite_insert if self.engine.dialect.name == 'sqlite' else mysql_insert
             statement = insert(UserContribution).values(**values)
             updates = {
@@ -601,6 +634,8 @@ class DataService:
                 'like_count': func.coalesce(UserContribution.like_count, 0) + like_count,
                 'user_name': user_name, 'updated_at': now,
             }
+            if clean_display_id:
+                updates['display_id'] = clean_display_id
             for key in ['anchor_name', 'user_avatar'] + list(profile):
                 if values.get(key):
                     updates[key] = values[key]
@@ -631,6 +666,14 @@ class DataService:
     @staticmethod
     def _escape_like(value):
         return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+    def _blank_name_condition(self, column):
+        if self.engine.dialect.name == 'sqlite':
+            return func.is_blank_nickname(column) == 1
+        return or_(column == '', column.op('REGEXP')(
+            '^[[:space:]\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f'
+            '\u2000-\u200f\u2028-\u202f\u205f-\u206f\u2800\u3000\u3164'
+            '\ufe00-\ufe0f\ufeff\uffa0]*$'))
 
     def get_contributors_by_date_range(self, live_id: str = None, start_date: str = None, end_date: str = None, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         """Aggregate identities and enrich just the current page in bounded queries."""
@@ -1751,6 +1794,7 @@ class DataService:
             # 构建用户信息（含额外信息）
             user_info = {
                 'user_id': resolved_user_id or user_id or '',
+                'display_id': user_contrib.display_id if user_contrib else None,
                 'nickname': display_name,
                 'avatar': user_avatar,
                 'level': max_level,
@@ -1890,15 +1934,40 @@ class DataService:
                              start_date: str = None, end_date: str = None,
                              limit: int = 30) -> List[Dict[str, Any]]:
         """按用户名搜索匹配用户列表，不返回消息详情。"""
-        if not user_name or not user_name.strip():
+        if user_name is None or user_name == '':
             return []
 
         session = self.get_session()
         try:
-            keyword = f"%{self._escape_like(user_name.strip())}%"
-            chat_conditions = [ChatMessage.user_name.ilike(keyword, escape='\\')]
-            gift_conditions = [GiftMessage.user_name.ilike(keyword, escape='\\')]
             related_ids = self._related_live_ids(session, live_id) if live_id else []
+            if is_blank_search_query(user_name):
+                chat_match = self._blank_name_condition(ChatMessage.user_name)
+                gift_match = self._blank_name_condition(GiftMessage.user_name)
+                contrib_match = self._blank_name_condition(UserContribution.user_name)
+            else:
+                clean_term = re.sub(r'^(?:id|抖音号)\s*[:：]\s*', '', user_name.strip(),
+                                    flags=re.IGNORECASE).strip() or user_name.strip()
+                keyword = f"%{self._escape_like(clean_term)}%"
+                uid_query = session.query(UserContribution.user_id).filter(or_(
+                    UserContribution.display_id.ilike(keyword, escape='\\'),
+                    UserContribution.user_id.ilike(keyword, escape='\\')))
+                if related_ids:
+                    uid_query = uid_query.filter(UserContribution.live_id.in_(related_ids))
+                matched_uids = [row.user_id for row in uid_query.all()]
+                chat_match = or_(
+                    ChatMessage.user_name.ilike(keyword, escape='\\'),
+                    ChatMessage.user_id.ilike(keyword, escape='\\'),
+                    *([ChatMessage.user_id.in_(matched_uids)] if matched_uids else []))
+                gift_match = or_(
+                    GiftMessage.user_name.ilike(keyword, escape='\\'),
+                    GiftMessage.user_id.ilike(keyword, escape='\\'),
+                    *([GiftMessage.user_id.in_(matched_uids)] if matched_uids else []))
+                contrib_match = or_(
+                    UserContribution.user_name.ilike(keyword, escape='\\'),
+                    UserContribution.user_id.ilike(keyword, escape='\\'),
+                    UserContribution.display_id.ilike(keyword, escape='\\'))
+            chat_conditions = [chat_match]
+            gift_conditions = [gift_match]
 
             if related_ids:
                 chat_conditions.append(ChatMessage.live_id.in_(related_ids))
@@ -1969,6 +2038,7 @@ class DataService:
                         'anchor_name': row.anchor_name,
                         'user_id': row.user_id,
                         'nickname': row.user_name,
+                        'display_id': None,
                         'user_level': row.user_level or 0,
                         'fans_club_level': row.fans_club_level or 0,
                         'chat_count': 0,
@@ -2007,26 +2077,34 @@ class DataService:
                     item['nickname'] = row.user_name
                     item['anchor_name'] = row.anchor_name
 
-            if not users and not session_id and not start_date and not end_date:
-                contrib_conditions = [UserContribution.user_name.ilike(keyword, escape='\\')]
+            if session_id is None:
+                contrib_conditions = [contrib_match]
                 if related_ids:
                     contrib_conditions.append(UserContribution.live_id.in_(related_ids))
+                if start_date:
+                    contrib_conditions.append(UserContribution.updated_at >= start_datetime)
+                if end_date:
+                    contrib_conditions.append(UserContribution.updated_at <= end_datetime)
                 contrib_rows = session.query(UserContribution).filter(
                     and_(*contrib_conditions)
-                ).order_by(UserContribution.total_score.desc()).limit(limit).all()
+                ).order_by(UserContribution.total_score.desc(), UserContribution.updated_at.desc()).limit(limit).all()
                 for row in contrib_rows:
+                    if (row.live_id, row.user_id) in users:
+                        continue
                     users[(row.live_id, row.user_id)] = {
                         'live_id': row.live_id,
                         'session_id': None,
                         'anchor_name': row.anchor_name,
                         'user_id': row.user_id,
                         'nickname': row.user_name,
+                        'display_id': row.display_id,
                         'user_level': 0,
                         'fans_club_level': row.fans_club_level or 0,
-                        'chat_count': row.chat_count or 0,
-                        'gift_count': row.gift_count or 0,
+                        'chat_count': 0 if start_date or end_date else row.chat_count or 0,
+                        'gift_count': 0 if start_date or end_date else row.gift_count or 0,
+                        'gift_message_count': 0 if start_date or end_date else row.gift_count or 0,
                         'like_count': row.like_count or 0,
-                        'total_value': int(row.total_score or 0),
+                        'total_value': 0 if start_date or end_date else int(row.total_score or 0),
                         'last_seen_at': row.updated_at,
                         'user_avatar': row.user_avatar,
                         'gender': row.gender,
@@ -2035,6 +2113,7 @@ class DataService:
                         'age_range': row.age_range,
                     }
 
+            display_updated_at = {}
             if users:
                 user_ids = [item['user_id'] for item in users.values()]
                 contrib_query = session.query(UserContribution).filter(UserContribution.user_id.in_(user_ids))
@@ -2043,7 +2122,9 @@ class DataService:
                 for row in contrib_query.all():
                     key = (row.live_id, row.user_id)
                     if key in users:
+                        display_updated_at[key] = row.updated_at
                         users[key].update({
+                            'display_id': row.display_id,
                             'user_avatar': row.user_avatar,
                             'gender': row.gender,
                             'follower_count': row.follower_count,
@@ -2055,14 +2136,22 @@ class DataService:
 
             if live_id and related_ids:
                 merged = {}
+                merged_display_at = {}
                 for item in users.values():
                     uid = item['user_id']
                     if uid not in merged:
                         cloned = dict(item)
                         cloned['live_id'] = live_id
                         merged[uid] = cloned
+                        if item.get('display_id'):
+                            merged_display_at[uid] = display_updated_at[(item['live_id'], uid)]
                         continue
                     existing = merged[uid]
+                    if item.get('display_id'):
+                        observed_at = display_updated_at[(item['live_id'], uid)]
+                        if uid not in merged_display_at or observed_at >= merged_display_at[uid]:
+                            existing['display_id'] = item['display_id']
+                            merged_display_at[uid] = observed_at
                     existing['chat_count'] = (existing['chat_count'] or 0) + (item['chat_count'] or 0)
                     existing['gift_count'] = (existing['gift_count'] or 0) + (item['gift_count'] or 0)
                     existing['gift_message_count'] = existing.get('gift_message_count', 0) + item.get('gift_message_count', 0)

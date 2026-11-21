@@ -1,7 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#111827"/>
-  <path d="M20 20a17 17 0 0 1 24 0" fill="none" stroke="#06b6d4" stroke-width="5" stroke-linecap="round"/>
-  <path d="M16 27a23 23 0 0 1 32 0" fill="none" stroke="#ef4444" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="32" cy="36" r="15" fill="#ffffff"/>
-  <path d="M28 27v18l15-9z" fill="#111827"/>
+  <defs>
+    <linearGradient id="hub-studio-bg" x1="0" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#20242E"/>
+      <stop offset="100%" stop-color="#0F1117"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#hub-studio-bg)"/>
+  <rect x="1.25" y="1.25" width="61.5" height="61.5" rx="13.75" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1.5"/>
+  <rect x="14" y="30" width="8" height="20" rx="4" fill="#94A3B8"/>
+  <rect x="27" y="16" width="8" height="34" rx="4" fill="#FFFFFF"/>
+  <rect x="40" y="23" width="8" height="27" rx="4" fill="#E2E8F0"/>
+  <circle cx="48" cy="15" r="7.5" fill="#F43F5E" fill-opacity="0.22"/>
+  <circle cx="48" cy="15" r="4.8" fill="#F43F5E"/>
 </svg>

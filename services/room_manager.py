@@ -645,7 +645,8 @@ class MonitoredRoom:
                            user_avatar: str = None,
                            gender: int = None, follower_count: int = None,
                            following_count: int = None, age_range: int = None,
-                           fans_club_level: int = None, user_level: int = None):
+                           fans_club_level: int = None, user_level: int = None,
+                           display_id: str = None):
         """更新用户贡献"""
         with self.data_lock:
             if user_id not in self.user_contributions:
@@ -673,6 +674,8 @@ class MonitoredRoom:
                 if old_name != user_name or old_avatar != user_avatar:
                     logger.debug(f"[更新用户信息] {user_id}: {old_name} -> {user_name}, avatar: {old_avatar} -> {user_avatar}")
 
+            if display_id:
+                self.user_contributions[user_id]['display_id'] = display_id
             self.user_contributions[user_id]['score'] += gift_value
             self.user_contributions[user_id]['gift_count'] = self.user_contributions[user_id].get('gift_count', 0) + gift_count
             self.user_contributions[user_id]['like_count'] = self.user_contributions[user_id].get('like_count', 0) + like_count
@@ -694,7 +697,8 @@ class MonitoredRoom:
             following_count=following_count,
             age_range=age_range,
             fans_club_level=fans_club_level,
-            user_level=user_level
+            user_level=user_level,
+            display_id=display_id,
         )
 
     def get_contribution_rank(self, limit: int = 100) -> list:

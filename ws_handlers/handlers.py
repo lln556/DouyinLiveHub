@@ -233,9 +233,15 @@ class WebDouyinLiveFetcher:
         user_id = f"anon_{user}_{level}" if raw_id in ('0', '111111') else raw_id
         club = getattr(getattr(message_user, 'fans_club', None), 'data', None)
         follow = getattr(message_user, 'follow_info', None)
+        raw_display_id = (getattr(message_user, 'display_id', None) or '').strip() or (getattr(message_user, 'special_id', None) or '').strip()
+        if not raw_display_id:
+            short_id = getattr(message_user, 'short_id', 0) or 0
+            if short_id and str(short_id) != '0':
+                raw_display_id = str(short_id)
         return {
             'user': user,
             'user_id': user_id,
+            'display_id': raw_display_id or None,
             'user_level': level,
             'fans_club_level': getattr(club, 'level', 0) or 0,
             'gender': getattr(message_user, 'gender', 0) or 0,
@@ -268,6 +274,7 @@ class WebDouyinLiveFetcher:
                 data_service.increment_session_stats(self.current_session_id, chat_count_delta=1)
             self.monitored_room.update_contribution(
                 fields['user_id'], fields['user'], chat_count=1,
+                display_id=fields['display_id'],
                 **{key: fields[key] for key in ('user_level', 'fans_club_level', 'gender',
                                                'follower_count', 'following_count', 'age_range')},
             )
@@ -443,6 +450,7 @@ class WebDouyinLiveFetcher:
                     try:
                         self.monitored_room.update_contribution(
                             fields['user_id'], fields['user'], gift_value=item_value,
+                            display_id=fields['display_id'],
                             gift_count=item_count, user_avatar=avatar,
                             **{key: fields[key] for key in ('user_level', 'fans_club_level', 'gender',
                                                            'follower_count', 'following_count', 'age_range')},
@@ -506,6 +514,7 @@ class WebDouyinLiveFetcher:
             try:
                 self.monitored_room.update_contribution(
                     fields['user_id'], fields['user'], gift_value=partial_value,
+                    display_id=fields['display_id'],
                     gift_count=partial_count, user_avatar=avatar,
                     **{key: fields[key] for key in ('user_level', 'fans_club_level', 'gender',
                                                    'follower_count', 'following_count', 'age_range')},
@@ -588,6 +597,7 @@ class WebDouyinLiveFetcher:
             if count > 0:
                 self.monitored_room.update_contribution(
                     fields['user_id'], fields['user'], like_count=count,
+                    display_id=fields['display_id'],
                     user_avatar=avatar_urls[0] if avatar_urls else None,
                     user_level=fields['user_level'], fans_club_level=fields['fans_club_level'],
                 )

@@ -79,6 +79,7 @@ def migrate_database(engine):
         ('user_contributions', 'user_level', 'INTEGER DEFAULT 0'),
         ('live_sessions', 'total_like_count', 'INTEGER DEFAULT 0'),
         ('live_rooms', 'archived_at', 'DATETIME NULL'),
+        ('user_contributions', 'display_id', 'VARCHAR(100) NULL'),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:

@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>直播数据统计</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+    <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico?v=2">
     <script src="/static/vendor/vue.min.js"></script>
     <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
     <link href="/static/css/app-ui.css" rel="stylesheet">
@@ -232,8 +232,11 @@
             <div class="hub-navbar-inner">
                 <a href="/" class="hub-brand">
                     <span class="hub-brand-mark" aria-hidden="true">
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/>
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <rect x="4" y="11" width="3" height="8" rx="1.5" fill="#94A3B8"/>
+                            <rect x="9.5" y="5.5" width="3" height="13.5" rx="1.5" fill="#FFFFFF"/>
+                            <rect x="15" y="8.5" width="3" height="10.5" rx="1.5" fill="#E2E8F0"/>
+                            <circle cx="19" cy="5" r="2.2" fill="#FB7185"/>
                         </svg>
                     </span>
                     <span>抖音直播记录站</span>
@@ -330,15 +333,16 @@
                 </template>
 
                 <div class="md:col-span-6">
-                    <label class="block text-xs font-medium text-gray-500 mb-1">按用户名查消息</label>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">按用户名 / ID 查消息</label>
                     <form @submit.prevent="searchStatsUserByName" class="relative">
                         <input
-                            v-model.trim="userNameSearch"
+                            v-model="userNameSearch"
+                            data-user-search-input="1"
                             @focus="userSearchFocused = true"
                             @blur="onUserSearchBlur"
                             type="text"
                             class="w-full min-w-0 pl-9 pr-20 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 text-sm"
-                            placeholder="输入用户名自动搜索">
+                            placeholder="输入昵称 / 抖音号 / ID 搜索（输入空格查空白昵称）">
                         <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
                         </svg>
@@ -362,11 +366,13 @@
                                     <div class="flex items-center min-w-0">
                                         <img v-if="user.user_avatar" :src="user.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
                                         <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xs font-bold mr-2"
-                                             v-text="(user.nickname || user.user_id || 'U').substring(0, 1)"></div>
+                                             v-text="formatAvatarInitial(user.nickname, user.user_id)"></div>
                                         <div class="min-w-0">
-                                            <div class="text-sm font-medium text-gray-900 truncate" v-text="user.nickname || user.user_id"></div>
+                                            <div class="text-sm font-medium text-gray-900 truncate" v-text="formatDisplayName(user.nickname, user.user_id)"></div>
                                             <div class="text-xs text-gray-400 truncate">
                                                 <span v-text="user.anchor_name || user.live_id || '全部房间'"></span>
+                                                <span v-if="user.display_id" class="mx-1">·</span>
+                                                <span v-if="user.display_id" v-text="'抖音号: ' + user.display_id"></span>
                                                 <span class="mx-1">·</span>
                                                 <span v-text="'ID: ' + user.user_id"></span>
                                             </div>
@@ -568,11 +574,11 @@
                                     <td class="px-3 py-2.5 whitespace-nowrap">
                                         <div class="flex items-center">
                                             <img v-if="contributor.user_avatar" :src="contributor.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
-                                            <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-xs mr-2" v-text="(contributor.nickname || contributor.user_id || '').substring(0, 1)"></div>
+                                            <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-xs mr-2" v-text="formatAvatarInitial(contributor.nickname, contributor.user_id)"></div>
                                             <div class="min-w-0 flex items-center gap-1">
                                                 <div class="text-sm font-medium text-gray-900 truncate clickable-user"
                                                      @click="openUserMessagesModal(contributor.user_id, contributor.nickname || contributor.user_id, { live_id: contributor.live_id })"
-                                                     v-text="contributor.nickname || contributor.user_id"></div>
+                                                     v-text="formatDisplayName(contributor.nickname, contributor.user_id)"></div>
                                                 <img v-if="contributor.user_level" :src="'/level_img/level_' + contributor.user_level + '.png'" style="height: 18px; object-fit: contain;">
                                                 <img v-if="contributor.fans_club_level" :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                             </div>
@@ -600,10 +606,10 @@
                                         <div class="flex items-center">
                                             <img v-if="liker.user_avatar" :src="liker.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
                                             <div v-else class="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xs font-bold mr-2"
-                                                 v-text="(liker.user_name || liker.user_id || 'U').substring(0, 1)"></div>
+                                                 v-text="formatAvatarInitial(liker.user_name, liker.user_id)"></div>
                                             <span class="text-sm font-medium text-gray-900 truncate clickable-user"
                                                   @click="openLikerMessages(liker)"
-                                                  v-text="liker.user_name || liker.user_id"></span>
+                                                  v-text="formatDisplayName(liker.user_name, liker.user_id)"></span>
                                         </div>
                                     </td>
                                     <td class="px-3 py-2.5 whitespace-nowrap text-sm text-gray-500" v-text="liker.anchor_name || liker.live_id"></td>
@@ -810,7 +816,7 @@
                                         <img v-if="chat.fans_club_level" :src="'/fansclub_img/fansclub_' + chat.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                         <span class="font-medium text-blue-600 text-sm clickable-user"
                                               @click="openUserMessagesModal(chat.user_id, chat.nickname || chat.user_id, { session_id: sessionDetail.id, live_id: selectedRoomId })"
-                                              v-text="chat.nickname || chat.user_id"></span>
+                                              v-text="formatDisplayName(chat.nickname, chat.user_id)"></span>
                                         <span class="text-gray-400 text-xs" v-text="formatDateTime(chat.created_at)"></span>
                                     </div>
                                     <div class="text-gray-700 mt-1 text-sm" v-text="chat.content"></div>
@@ -863,7 +869,7 @@
                                             <img v-if="gift.fans_club_level" :src="'/fansclub_img/fansclub_' + gift.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                             <span class="font-medium text-blue-600 text-sm clickable-user"
                                                   @click="openUserMessagesModal(gift.user_id, gift.nickname || gift.user_id, { session_id: sessionDetail.id, live_id: selectedRoomId })"
-                                                  v-text="gift.nickname || gift.user_id"></span>
+                                                  v-text="formatDisplayName(gift.nickname, gift.user_id)"></span>
                                             <span class="text-gray-400 text-xs" v-text="formatDateTime(gift.created_at)"></span>
                                         </div>
                                         <div class="text-yellow-600 font-bold text-sm" v-text="gift.diamond_count + ' 钻石'"></div>
@@ -934,12 +940,12 @@
                                         <td class="px-4 py-2">
                                             <div class="flex items-center gap-2">
                                                 <img v-if="contributor.user_avatar" :src="contributor.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full">
-                                                <div v-else class="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-500 text-xs">
-                                                    {{ (contributor.nickname || contributor.user_id || '').substring(0, 1) }}
+                                                <div v-else class="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-500 text-xs"
+                                                     v-text="formatAvatarInitial(contributor.nickname, contributor.user_id)">
                                                 </div>
                                                 <span class="font-medium text-blue-600 text-sm clickable-user"
                                                       @click="openUserMessagesModal(contributor.user_id, contributor.nickname || contributor.user_id, { session_id: sessionDetail.id, live_id: selectedRoomId })"
-                                                      v-text="contributor.nickname || contributor.user_id"></span>
+                                                      v-text="formatDisplayName(contributor.nickname, contributor.user_id)"></span>
                                                 <img v-if="contributor.user_level" :src="'/level_img/level_' + contributor.user_level + '.png'" style="height: 18px; object-fit: contain;">
                                                 <img v-if="contributor.fans_club_level" :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                             </div>
@@ -970,10 +976,10 @@
                                 referrerpolicy="no-referrer"
                                 class="user-avatar-large mr-4">
                             <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-2xl font-bold mr-4"
-                                 v-text="(userMessagesData.user.nickname || userMessagesData.user.user_id || 'U').substring(0, 1)"></div>
+                                 v-text="formatAvatarInitial(userMessagesData.user.nickname, userMessagesData.user.user_id)"></div>
                             <div>
                                 <h2 class="text-xl font-bold text-gray-900 flex items-center">
-                                    <span v-text="userMessagesData.user.nickname || userMessagesData.user.user_id"></span>
+                                    <span v-text="formatDisplayName(userMessagesData.user.nickname, userMessagesData.user.user_id)"></span>
                                     <img v-if="userMessagesData.user.level"
                                          :src="'/level_img/level_' + userMessagesData.user.level + '.png'"
                                          style="height: 20px; margin-left: 8px; object-fit: contain;">
@@ -981,6 +987,10 @@
                                          :src="'/fansclub_img/fansclub_' + userMessagesData.user.fans_club_level + '.png'"
                                          style="height: 20px; margin-left: 4px; object-fit: contain;">
                                 </h2>
+                                <div v-if="userMessagesData.user.display_id || userMessagesData.user.user_id"
+                                     class="mt-0.5 text-xs text-gray-400 font-mono truncate">
+                                    <span v-if="userMessagesData.user.display_id" v-text="'抖音号: ' + userMessagesData.user.display_id + ' · '"></span><span v-if="userMessagesData.user.user_id" v-text="'ID: ' + userMessagesData.user.user_id"></span>
+                                </div>
                             </div>
                         </div>
                         <button @click="closeUserMessagesModal" class="user-modal-close-btn text-gray-400 hover:text-gray-700 text-3xl leading-none">&times;</button>
@@ -1080,7 +1090,7 @@
                                          class="h-5 mr-1" style="width: 40px; object-fit: contain;">
                                     <img v-if="msg.fans_club_level" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
                                          style="height: 18px; object-fit: contain; vertical-align: middle; margin-right: 4px;">
-                                    <span class="font-medium text-blue-600 text-sm" v-text="msg.nickname || msg.user_id"></span>
+                                    <span class="font-medium text-blue-600 text-sm" v-text="formatDisplayName(msg.nickname, msg.user_id)"></span>
                                     <span v-if="!userMessagesQuery.live_id && msg.live_id" class="ml-2 px-2 py-0.5 bg-white bg-opacity-70 rounded-full text-xs text-gray-500"
                                           v-text="msg.anchor_name || msg.live_id"></span>
                                 </div>

@@ -288,7 +288,7 @@ def capture(base_url: str) -> None:
 
         # 04 数据统计页内搜索（与 README「在统计页输入用户名」一致）
         # 复用 03 已加载的数据状态，只在搜索框输入触发下拉
-        search = page.locator('input[placeholder="输入用户名自动搜索"]')
+        search = page.locator('input[data-user-search-input="1"]')
         search.click()
         search.fill("云")
         page.wait_for_timeout(1000)  # 350 debounce + API

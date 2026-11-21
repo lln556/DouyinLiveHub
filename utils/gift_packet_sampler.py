@@ -30,6 +30,7 @@ _URL_MARKERS = ('MS4wLjAB', 'douyinpic', 'byteimg', 'http://', 'https://')
 _PII_NAMES = (
     'live_id', 'room_id', 'anchor_name', 'anchor_id', 'user_id', 'user_name',
     'sec_uid', 'log_id', 'trace_id', 'msg_id', 'nick_name', 'id_str',
+    'display_id', 'special_id',
 )
 _PII_KEYS = {name.replace('_', '') for name in _PII_NAMES} | {
     'user', 'touser', 'common', 'anchor', 'room', 'viewer', 'nickname', 'shortid', 'openid', 'unionid',
@@ -155,8 +156,8 @@ def _message_secrets(message):
 
     secrets = set()
     for obj, names in (
-        (getattr(message, 'user', None), ('nick_name', 'id_str', 'id', 'sec_uid')),
-        (getattr(message, 'to_user', None), ('nick_name', 'id_str', 'id', 'sec_uid')),
+        (getattr(message, 'user', None), ('nick_name', 'id_str', 'id', 'sec_uid', 'display_id', 'special_id')),
+        (getattr(message, 'to_user', None), ('nick_name', 'id_str', 'id', 'sec_uid', 'display_id', 'special_id')),
         (getattr(message, 'common', None), ('describe', 'msg_id', 'room_id', 'log_id')),
         (message, ('trace_id', 'log_id')),
     ):

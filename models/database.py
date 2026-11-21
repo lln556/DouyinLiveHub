@@ -149,6 +149,7 @@ class UserContribution(Base):
     live_id = Column(String(50), ForeignKey('live_rooms.live_id', ondelete='CASCADE'), nullable=False, index=True, comment='直播间ID')
     anchor_name = Column(String(100), nullable=True, comment='主播名称')
     user_id = Column(String(50), nullable=False, index=True, comment='用户ID')
+    display_id = Column(String(100), nullable=True, index=True, comment='自定义抖音号')
     user_name = Column(String(100), nullable=False, comment='用户名称')
     total_score = Column(Float, nullable=False, default=0, comment='总贡献值(钻石)')
     gift_count = Column(Integer, nullable=False, default=0, comment='送礼次数')

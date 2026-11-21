@@ -51,6 +51,23 @@ def records(path):
     return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
 
 
+@pytest.mark.parametrize('owner', ['user', 'to_user'])
+@pytest.mark.parametrize('metadata', ['identity_keys', 'copied_values'])
+def test_display_and_special_ids_are_scrubbed(sampler, tmp_path, owner, metadata):
+    user = protocol.User(id_str='1000000099', nick_name='测试观众',
+                         display_id='mock_secret_dy', special_id='mock_spec')
+    extra = ({'display_id': 'mock_secret_dy', 'special_id': 'mock_spec'}
+             if metadata == 'identity_keys' else {'note': 'mock_secret_dy mock_spec'})
+    message = gift(**{owner: user}, gift_play_param=json.dumps({'data': extra}))
+    sample(sampler, message)
+    record = records(tmp_path / 'gift_packet_samples.jsonl')[0]
+    contents = [json.dumps(record, ensure_ascii=False),
+                base64.b64decode(record['scrubbed_payload_b64']).decode(errors='ignore')]
+    for content in contents:
+        for secret in ('mock_secret_dy', 'mock_spec', 'display_id', 'special_id'):
+            assert secret not in content
+
+
 def varint(value):
     result = bytearray()
     while value > 127:

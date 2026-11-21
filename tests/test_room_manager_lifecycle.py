@@ -14,6 +14,119 @@ from services.scheduler_service import SchedulerService
 from ws_handlers.handlers import WebDouyinLiveFetcher
 
 
+@pytest.fixture(autouse=True)
+def clean_db():
+    """Lifecycle tests use fake services or isolated SQLite databases only."""
+
+
+@pytest.fixture
+def display_id_context():
+    service = DataService('sqlite:///:memory:')
+    service.create_tables()
+    service.create_live_room('room_display_test', anchor_name='测试主播')
+    room = room_manager_module.MonitoredRoom(
+        'room_display_test', SimpleNamespace(data_service=service))
+    room.anchor_name = '测试主播'
+    with patch('crawler.DouyinLiveWebFetcher'):
+        fetcher = WebDouyinLiveFetcher('room_display_test', service, Mock(), room)
+        fetcher.log = Mock()
+        yield service, room, fetcher
+    service.close_session()
+
+
+@pytest.mark.parametrize('profile,expected', [
+    ({'display_id': ' mock_dy_01 ', 'special_id': 'mock_spec'}, 'mock_dy_01'),
+    ({'display_id': ' ', 'special_id': ' mock_spec '}, 'mock_spec'),
+    ({'short_id': 1000000098}, '1000000098'),
+    ({'short_id': 0}, None),
+    ({'short_id': '0'}, None),
+    ({}, None),
+])
+@pytest.mark.parametrize('kind', ['chat', 'like', 'gift', 'combo', 'series'])
+def test_message_display_id_persists_without_empty_overwrite(display_id_context, profile, expected, kind):
+    from protobuf import douyin as protocol
+
+    service, room, fetcher = display_id_context
+    user = protocol.User(id=1000000099, id_str='1000000099', nick_name='测试观众', **profile)
+    if kind == 'chat':
+        fetcher._handle_chat_message(protocol.ChatMessage(user=user, content='测试弹幕'))
+    elif kind == 'like':
+        fetcher._handle_like_message(protocol.LikeMessage(user=user, count=2, total=0))
+    else:
+        gift = SimpleNamespace(
+            user=user, gift=SimpleNamespace(name='测试礼物', diamond_count=2),
+            gift_id=1000000001, trace_id='mock_gift_trace', group_count=1,
+            group_id=1 if kind == 'combo' else 0,
+            combo_count=2 if kind == 'combo' else 0,
+        )
+        if kind == 'series':
+            gift.series_gift_data = [SimpleNamespace(
+                gift_struct=SimpleNamespace(id=1000000002, name='测试子礼物', diamond_count=3))]
+        fetcher._handle_gift_message(gift)
+    assert service.get_user_contribution(room.live_id, '1000000099').display_id == expected
+    assert room.user_contributions['1000000099'].get('display_id') == expected
+    empty_user = protocol.User(id=1000000099, id_str='1000000099', nick_name='测试观众', display_id='')
+    fetcher._handle_like_message(protocol.LikeMessage(user=empty_user, count=1, total=0))
+    fetcher._handle_chat_message(protocol.ChatMessage(user=empty_user, content='后续测试弹幕'))
+    assert room.user_contributions['1000000099'].get('display_id') == expected
+    assert service.get_user_messages(live_id=room.live_id, user_id='1000000099')['user']['display_id'] == expected
+    assert service.get_user_contribution(room.live_id, '1000000099').display_id == expected
+
+
+def test_display_id_updates_trim_truncate_and_preserve(display_id_context):
+    service, room, _ = display_id_context
+    for value, expected in [(' mock_dy_01 ', 'mock_dy_01'), ('', 'mock_dy_01'),
+                            ('   ', 'mock_dy_01'), (None, 'mock_dy_01'),
+                            (' mock_dy_02 ', 'mock_dy_02'), ('x' * 110, 'x' * 100)]:
+        row = service.update_user_contribution(room.live_id, '测试主播', '1000000099',
+                                               '测试观众', display_id=value)
+        assert row.display_id == expected
+
+
+@pytest.mark.parametrize('value,expected', [
+    (None, True), ('', True), ('   ', True), ('\u3164\u2800\u200d', True),
+    ('爱 丽 丝', False), ('测试\u200d', False),
+])
+def test_blank_nickname_helper(value, expected):
+    from services import data_service
+    assert data_service.is_blank_nickname(value) is expected
+
+
+def test_blank_helper_covers_all_extra_codepoints(display_id_context):
+    from sqlalchemy import func, select
+    from services import data_service
+    codepoints = {0x00AD, 0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5,
+                  *range(0x180B, 0x1810), *range(0x2000, 0x2010),
+                  *range(0x2028, 0x2030), *range(0x205F, 0x2070), 0x2800, 0x3000,
+                  0x3164, *range(0xFE00, 0xFE10), 0xFEFF, 0xFFA0, *range(0xFFF9, 0xFFFC)}
+    service, _, _ = display_id_context
+    with service.get_session() as db:
+        for codepoint in codepoints:
+            value = chr(codepoint)
+            assert data_service.is_blank_nickname(value)
+            assert db.scalar(select(func.is_blank_nickname(value))) == 1
+        assert db.scalar(select(func.is_blank_nickname('爱 丽 丝'))) == 0
+
+
+@pytest.mark.parametrize('value,expected', [
+    (None, False), ('', False), (' ', True), ('\u200d', True),
+    ('空白昵称', True), (' [空白昵称] ', True), ('爱 丽 丝', False),
+])
+def test_blank_search_query_helper(value, expected):
+    from services import data_service
+    assert data_service.is_blank_search_query(value) is expected
+
+
+def test_sqlite_blank_search_includes_contribution_only_users(display_id_context):
+    service, room, _ = display_id_context
+    service.save_chat_message(room.live_id, user_id='mock_chat', user_name='   ', content='测试弹幕')
+    service.save_chat_message(room.live_id, user_id='mock_visible', user_name='爱 丽 丝', content='测试弹幕')
+    service.update_user_contribution(room.live_id, '测试主播', 'mock_like', '\u3164\u2800\u200d', like_count=5)
+    for query in ('   ', '空白昵称'):
+        rows = service.search_users_by_name(live_id=room.live_id, user_name=query)
+        assert {row['user_id'] for row in rows} == {'mock_chat', 'mock_like'}
+
+
 class FakeDataService:
     def __init__(self):
         self.room = SimpleNamespace(

@@ -83,7 +83,7 @@ def test_user_search_blur_closes_dropdown_without_errors(authed_page, base_url, 
     authed_page.goto(f"{base_url}{route_path}", wait_until="domcontentloaded")
     _wait_vue_ready(authed_page)
 
-    search_input = authed_page.locator("input[placeholder='输入用户名自动搜索']")
+    search_input = authed_page.locator("input[data-user-search-input='1']")
     search_input.click()
     search_input.fill("测试观众")
     authed_page.wait_for_timeout(450)
@@ -577,5 +577,142 @@ def test_room_offline_prefills_last_session_and_clears_on_live(authed_page, base
     assert "开播啦第一条" in msg_text
     assert "主播明天见" not in msg_text
     assert authed_page.evaluate("() => document.querySelector('#app').__vue__.isOfflinePreview") is False
+
+
+def test_blank_nickname_search_douyin_id_display_and_studio_icon(authed_page, base_url, factories):
+    """空格可触发空白昵称检索，页面与弹窗统一显示 [空白昵称] 与抖音号/ID，并启用新版导播台图标。"""
+    factories.room(live_id="e2e_blank_search_01", anchor_name="空白搜索测试主播")
+    captured_queries = []
+
+    def handle_user_search(route):
+        parsed = urlparse(route.request.url)
+        captured_queries.append(parsed.query)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "users": [
+                        {
+                            "live_id": "e2e_blank_search_01",
+                            "anchor_name": "空白搜索测试主播",
+                            "user_id": "100000099",
+                            "display_id": "mock_dy_blank",
+                            "nickname": "\u3164\u3164\u3164",
+                            "total_messages": 4,
+                            "chat_count": 3,
+                            "gift_count": 1,
+                            "total_value": 120,
+                        }
+                    ],
+                    "total": 1,
+                }
+            ),
+        )
+
+    def handle_user_messages(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "user": {
+                        "user_id": "100000099",
+                        "display_id": "mock_dy_blank",
+                        "nickname": "\u3164\u3164\u3164",
+                        "level": 18,
+                        "fans_club_level": 0,
+                    },
+                    "stats": {
+                        "total_messages": 2,
+                        "chat_count": 1,
+                        "gift_count": 1,
+                        "like_count": 5,
+                        "total_value": 120,
+                    },
+                    "messages": [
+                        {
+                            "id": 901,
+                            "type": "chat",
+                            "user_id": "100000099",
+                            "nickname": "\u3164\u3164\u3164",
+                            "content": "空白昵称观众发言",
+                            "created_at": "2026-11-21T12:00:00",
+                        }
+                    ],
+                    "pagination": {"page": 1, "page_size": 50, "total": 1, "total_pages": 1},
+                }
+            ),
+        )
+
+    authed_page.route("**/user-search*", handle_user_search)
+    authed_page.route("**/user-messages*", handle_user_messages)
+
+    authed_page.goto(f"{base_url}/room/e2e_blank_search_01", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    # 验证新版 favicon 链接与 3 柱 + Live 红点导播台品牌图标
+    favicon_href = authed_page.locator("link[rel='icon']").get_attribute("href")
+    assert favicon_href == "/static/favicon.svg?v=2"
+    assert authed_page.locator(".hub-brand-mark svg rect").count() == 3
+    assert authed_page.locator(".hub-brand-mark svg circle").count() == 1
+
+    # 弹幕流收到隐形填充符昵称时应渲染为可点击的 [空白昵称]
+    authed_page.evaluate(
+        """() => {
+            const vm = document.querySelector('#app').__vue__;
+            vm.handleMessage({
+                type: 'chat',
+                user_id: '100000099',
+                user: '\\u3164\\u3164\\u3164',
+                text: '隐形字符测试消息'
+            });
+        }"""
+    )
+    authed_page.wait_for_function(
+        "() => document.querySelector('.messages-container').innerText.includes('[空白昵称]')"
+    )
+
+    # 输入 3 个空格并搜索，不应提示“请输入用户名”
+    search_input = authed_page.locator("input[data-user-search-input='1']")
+    search_input.click()
+    search_input.fill("   ")
+    authed_page.locator("button[type='submit']", has_text="搜索").click()
+
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.userSearchResults.length === 1; }"
+    )
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.userSearchError") == ""
+    assert any("user_name=+++" in q or "user_name=%20%20%20" in q for q in captured_queries)
+
+    dropdown_text = authed_page.locator("form .absolute").last.inner_text()
+    assert "[空白昵称]" in dropdown_text
+    assert "抖音号: mock_dy_blank" in dropdown_text
+    assert "ID: 100000099" in dropdown_text
+
+    # 点击搜索结果打开用户消息弹窗，验证标题和抖音号/ID副标题
+    authed_page.locator("form button", has_text="[空白昵称]").first.dispatch_event("mousedown")
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showUserMessagesModal && !vm.userMessagesLoading; }"
+    )
+    modal_text = authed_page.locator(".user-modal-content").inner_text()
+    assert "[空白昵称]" in modal_text
+    assert "抖音号: mock_dy_blank" in modal_text
+    assert "ID: 100000099" in modal_text
+    assert "空白昵称观众发言" in modal_text
+
+    # 同时验证统计页输入纯空格也能触发检索且正常显示抖音号
+    authed_page.goto(f"{base_url}/stats", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+    stats_input = authed_page.locator("input[data-user-search-input='1']")
+    stats_input.click()
+    stats_input.fill("   ")
+    authed_page.locator("button[type='submit']", has_text="搜索").click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.userSearchResults.length === 1; }"
+    )
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.userSearchError") == ""
+    assert "抖音号: mock_dy_blank" in authed_page.locator("form .absolute").last.inner_text()
+
 
 

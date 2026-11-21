@@ -97,10 +97,10 @@ const app = new Vue({
                 clearTimeout(this.userSearchDebounceTimer);
             }
 
-            const keyword = (value || '').trim();
+            const raw = value === null || value === undefined ? '' : String(value);
             this.userSearchError = '';
 
-            if (!keyword) {
+            if (!raw) {
                 this.userSearchRequestSeq++;
                 this.userSearchResults = [];
                 this.userSearchHasSearched = false;
@@ -737,7 +737,11 @@ const app = new Vue({
             }, 180);
         },
         async searchStatsUserByName(options = {}) {
-            const userName = (this.userNameSearch || '').trim();
+            const rawInput = this.userNameSearch === null || this.userNameSearch === undefined
+                ? ''
+                : String(this.userNameSearch);
+            const blankSearch = window.HubUI.isBlankSearchInput(rawInput);
+            const userName = blankSearch ? rawInput : rawInput.trim();
             this.userSearchError = '';
             this.userSearchResults = [];
             this.userSearchHasSearched = false;
@@ -1170,6 +1174,15 @@ const app = new Vue({
         formatAgeRange(val) {
             const map = {0: '-', 1: '<18', 2: '18-23', 3: '24-30', 4: '31-40', 5: '41-50', 6: '>50'};
             return map[val] || '-';
+        },
+        isBlankNickname(name) {
+            return window.HubUI.isBlankNickname(name);
+        },
+        formatDisplayName(name, fallback = '[空白昵称]') {
+            return window.HubUI.formatDisplayName(name, fallback);
+        },
+        formatAvatarInitial(name, fallbackId = 'U') {
+            return window.HubUI.formatAvatarInitial(name, fallbackId);
         }
     }
 });

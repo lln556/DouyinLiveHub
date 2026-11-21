@@ -280,10 +280,44 @@
         return { liveId: raw, fromUrl: false };
     }
 
+    const BLANK_CHAR_RE = /^[\s\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB]*$/;
+
+    function isBlankNickname(name) {
+        if (name === null || name === undefined) return true;
+        const str = String(name);
+        if (str.length === 0) return true;
+        return BLANK_CHAR_RE.test(str);
+    }
+
+    function isBlankSearchInput(raw) {
+        if (typeof raw !== 'string' || raw.length === 0) return false;
+        const trimmed = raw.trim();
+        return isBlankNickname(raw) || trimmed === '空白昵称' || trimmed === '[空白昵称]';
+    }
+
+    function formatDisplayName(name, fallback = '[空白昵称]') {
+        if (name === null || name === undefined) return fallback;
+        const str = String(name);
+        if (str.length === 0) return fallback;
+        return isBlankNickname(str) ? '[空白昵称]' : str;
+    }
+
+    function formatAvatarInitial(name, fallbackId = 'U') {
+        if (name !== null && name !== undefined && String(name).length > 0 && isBlankNickname(name)) {
+            return '空';
+        }
+        const source = formatDisplayName(name, String(fallbackId || 'U'));
+        return source.substring(0, 1) || 'U';
+    }
+
     global.HubUI = {
         toast,
         confirm,
         confirmHardDelete,
-        extractLiveId
+        extractLiveId,
+        isBlankNickname,
+        isBlankSearchInput,
+        formatDisplayName,
+        formatAvatarInitial
     };
 })(window);
