@@ -48,6 +48,22 @@ _JS_WORKER_THREAD = None
 # Retained so V8/PartitionAlloc isolates are never finalized on arbitrary GC threads.
 _RETIRED_JS_CONTEXTS = []
 
+_STATUS_PROBE_LOCK = threading.Lock()
+_LAST_STATUS_PROBE_AT = 0.0
+STATUS_PROBE_MIN_INTERVAL = 1.5
+
+
+def _throttle_status_probe():
+    """跨房间错峰发起状态探测，避免同时请求触发空响应风控。"""
+    if not config.ANTI_DETECTION_ENABLED:
+        return
+    global _LAST_STATUS_PROBE_AT
+    with _STATUS_PROBE_LOCK:
+        elapsed = time.monotonic() - _LAST_STATUS_PROBE_AT
+        if elapsed < STATUS_PROBE_MIN_INTERVAL:
+            time.sleep(STATUS_PROBE_MIN_INTERVAL - elapsed)
+        _LAST_STATUS_PROBE_AT = time.monotonic()
+
 
 @lru_cache(maxsize=16)
 def _read_js_source(js_file: str) -> str:
@@ -582,6 +598,7 @@ class DouyinLiveWebFetcher:
         """
         self.status_error_message = None
         try:
+            _throttle_status_probe()
             # 检查 room_id 是否可用
             if not self.room_id:
                 self.log.warning("无法获取 roomId，直播间可能已结束")

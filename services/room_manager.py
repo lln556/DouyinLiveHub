@@ -228,7 +228,7 @@ class MonitoredRoom:
 
                         # 进入轮询模式，等待主播开播
                         logger.info(f"房间 {self.live_id} 进入轮询模式，等待主播开播")
-                        if self._poll_room_status():
+                        if self._poll_room_status(initial_confirmed_offline=is_live is False):
                             # 检测到开播，重置重连次数并继续
                             self.reconnect_count = 0
                             self.manager.data_service.update_live_room_reconnect(self.live_id, 0)
@@ -400,7 +400,7 @@ class MonitoredRoom:
         except Exception as e:
             logger.debug(f"[{self.live_id}] 关闭 fetcher 连接池失败: {e}")
 
-    def _poll_room_status(self) -> bool:
+    def _poll_room_status(self, initial_confirmed_offline: bool = False) -> bool:
         """
         轮询直播间状态，等待主播开播（无限轮询直到开播或手动停止）
         :return: True 表示检测到开播，False 表示被手动停止
@@ -410,6 +410,8 @@ class MonitoredRoom:
         logger.info(f"房间 {self.live_id} 开始轮询直播状态（等待主播开播）")
 
         poll_count = 0
+        confirmed_offline = bool(initial_confirmed_offline)
+        consecutive_failures = 0
 
         while not self.shutdown_event.is_set():
             temp_fetcher = None
@@ -433,7 +435,8 @@ class MonitoredRoom:
                                 self.anchor_name = updates['anchor_name']
 
                 # get_room_status 返回 True 表示正在直播
-                if is_live:
+                if is_live is True:
+                    consecutive_failures = 0
                     logger.info(f"房间 {self.live_id} 检测到正在直播，准备连接")
                     self.manager.data_service.update_live_room_status(
                         self.live_id,
@@ -448,6 +451,8 @@ class MonitoredRoom:
                     )
                     return True
                 elif is_live is False:
+                    confirmed_offline = True
+                    consecutive_failures = 0
                     self.check_and_end_session_if_offline("轮询确认主播未开播")
                     poll_count += 1
                     error_msg = '主播未开播，等待开播中...'
@@ -459,16 +464,21 @@ class MonitoredRoom:
                     logger.debug(f"房间 {self.live_id} 未开播，继续等待... (第{poll_count}次检测)")
                 else:
                     poll_count += 1
-                    error_msg = (
-                        temp_fetcher.status_error_message
-                        or "直播间状态检测失败，等待重试..."
-                    )
+                    consecutive_failures += 1
+                    if confirmed_offline and consecutive_failures < 3:
+                        error_msg = '主播未开播，等待开播中...'
+                        logger.debug(f"房间 {self.live_id} 等待开播期间状态探测暂时失败 (连续{consecutive_failures}次)")
+                    else:
+                        error_msg = (
+                            temp_fetcher.status_error_message
+                            or "直播间状态检测失败，等待重试..."
+                        )
+                        logger.debug(f"房间 {self.live_id} 状态检测失败，继续等待... (第{poll_count}次检测)")
                     self.manager.data_service.update_live_room_status(
                         self.live_id,
                         'offline',
                         error_msg
                     )
-                    logger.debug(f"房间 {self.live_id} 状态检测失败，继续等待... (第{poll_count}次检测)")
 
             except Exception as e:
                 logger.debug(f"房间 {self.live_id} 轮询状态时出错: {e}")

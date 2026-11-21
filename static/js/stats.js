@@ -118,10 +118,22 @@ const app = new Vue({
     },
     async mounted() {
         this.todayDate = this.formatDateForInput(new Date());
+        const urlParams = new URLSearchParams(window.location.search || '');
+        const paramLiveId = (urlParams.get('live_id') || '').trim();
+        const paramRange = (urlParams.get('range') || '').trim();
+        const paramSessionId = (urlParams.get('session_id') || '').trim();
+
         await Promise.all([
             this.loadRooms(),
-            this.loadDateRange()
+            paramLiveId ? Promise.resolve() : this.loadDateRange()
         ]);
+        if (paramLiveId) {
+            this.selectedRoomId = paramLiveId;
+            await this.loadRoomDateRange();
+        }
+        if (['7days', '30days', 'month', 'year', 'total', 'custom'].includes(paramRange)) {
+            this.timeRange = paramRange;
+        }
         this.initCustomDates();
         this.initPeriodDefaults();
         this._trendChartResizeHandler = () => this.resizeTrendChart();
@@ -137,7 +149,11 @@ const app = new Vue({
             }
         };
         document.addEventListener('keydown', this._keydownHandler);
-        // 不在 mounted 时自动加载数据，等待用户点击查询
+        await this.loadData();
+        const parsedSessionId = Number(paramSessionId);
+        if (Number.isInteger(parsedSessionId) && parsedSessionId > 0) {
+            await this.viewSessionDetail({ id: parsedSessionId });
+        }
     },
     beforeDestroy() {
         if (this.userSearchDebounceTimer) {
@@ -461,9 +477,6 @@ const app = new Vue({
             this.selectedYear = String(today.getFullYear());
         },
         onTimeRangeChange() {
-            this.hasSearched = false;
-            this.sessions = [];
-            this.contributors = [];
             this.userSearchResults = [];
             this.userSearchHasSearched = false;
             this.userSearchError = '';
@@ -476,7 +489,7 @@ const app = new Vue({
             this.autoLoadSelectedRoomStats();
         },
         canAutoLoadSelectedRoomStats() {
-            return Boolean(this.selectedRoomId && this.getDateRange());
+            return Boolean(this.getDateRange());
         },
         async autoLoadSelectedRoomStats() {
             if (!this.canAutoLoadSelectedRoomStats()) {
@@ -557,12 +570,14 @@ const app = new Vue({
         },
         async loadData() {
             if (this.timeRange === 'custom' && this.customStartDate && this.customEndDate && this.customStartDate > this.customEndDate) {
-                alert('开始日期不能晚于结束日期');
+                this.loading = false;
+                window.HubUI.toast('开始日期不能晚于结束日期', 'warning');
                 return;
             }
             const dateRange = this.getDateRange();
             if (!dateRange) {
-                alert('请选择完整的统计时间');
+                this.loading = false;
+                window.HubUI.toast('请选择完整的统计时间', 'warning');
                 return;
             }
 
@@ -699,15 +714,7 @@ const app = new Vue({
             return pages;
         },
         async loadRoomData() {
-            const wasLikeTab = this.activeRankTab === 'like';
-            const wasSearched = this.hasSearched;
-            this.sessions = [];
-            this.contributors = [];
             this.contributorPagination = { page: 1, page_size: 20, total: 0, total_pages: 1 };
-            // 点赞榜切回“全部房间”时保留面板可见并刷新全部房间统计，其余场景等待重新查询
-            if (!this.selectedRoomId && !(wasLikeTab && wasSearched)) {
-                this.hasSearched = false;
-            }
             this.userSearchResults = [];
             this.userSearchHasSearched = false;
             this.userSearchError = '';
@@ -715,16 +722,10 @@ const app = new Vue({
             await this.loadRoomDateRange();
             // 重新初始化自定义日期
             this.initCustomDates();
-            const tasks = [];
-            if (wasLikeTab) {
-                tasks.push(this.loadTopLikers());
-            }
-            if (this.selectedRoomId) {
-                tasks.push(this.autoLoadSelectedRoomStats());
-            } else if (wasLikeTab && wasSearched) {
-                tasks.push(this.loadData());
-            }
-            await Promise.all(tasks);
+            await Promise.all([
+                this.autoLoadSelectedRoomStats(),
+                ...(this.activeRankTab === 'like' ? [this.loadTopLikers()] : [])
+            ]);
         },
         onUserSearchBlur() {
             if (this.userSearchBlurTimer) {

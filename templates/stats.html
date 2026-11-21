@@ -8,6 +8,7 @@
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico">
     <script src="/static/vendor/vue.min.js"></script>
     <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
+    <link href="/static/css/app-ui.css" rel="stylesheet">
     <style>
         [v-cloak] {
             display: none !important;
@@ -253,23 +254,43 @@
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div id="app" v-cloak class="page-shell mx-auto px-4 py-6 lg:py-8">
+<body class="min-h-screen">
+    <div id="app" v-cloak>
+        <!-- 全站统一顶部导航栏 -->
+        <nav class="hub-navbar">
+            <div class="hub-navbar-inner">
+                <a href="/" class="hub-brand">
+                    <span class="hub-brand-mark" aria-hidden="true">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/>
+                        </svg>
+                    </span>
+                    <span>抖音直播记录站</span>
+                </a>
+                <div class="hub-nav-links">
+                    <a href="/" class="hub-nav-link">直播控制台</a>
+                    <a href="/stats" class="hub-nav-link is-active">数据统计</a>
+                    <a href="/history" class="hub-nav-link">归档管理</a>
+                </div>
+                <div class="hub-nav-right">
+                    <form method="post" action="/logout" class="inline">
+                        <button type="submit" class="hub-logout-btn">退出登录</button>
+                    </form>
+                </div>
+            </div>
+        </nav>
+
+        <div class="hub-container page-shell mx-auto">
         <!-- 头部 -->
-        <div class="topbar flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5">
             <div>
                 <h1 class="text-2xl font-bold text-gray-900">直播数据统计</h1>
-                <p class="text-sm text-gray-500 mt-1">查看场次表现、互动走势和用户排行</p>
+                <p class="text-sm text-gray-500 mt-1">打开即自动统计，支持跨房间总览与单房间场次下钻</p>
             </div>
-            <div class="flex gap-2">
-                <a href="/" class="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 text-sm">
-                    返回首页
+            <div v-if="selectedRoomId" class="flex items-center gap-2">
+                <a :href="'/room/' + encodeURIComponent(selectedRoomId)" class="hub-btn hub-btn-secondary">
+                    进入该房间直播间 →
                 </a>
-                <form method="post" action="/logout" class="inline">
-                    <button type="submit" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm">
-                        退出登录
-                    </button>
-                </form>
             </div>
         </div>
 
@@ -308,7 +329,7 @@
                         @click="loadData"
                         :disabled="loading && hasSearched"
                         :class="['w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 text-sm font-medium shadow-sm']">
-                        <span v-text="loading && hasSearched ? '查询中...' : '查询统计'"></span>
+                        <span v-text="loading && hasSearched ? '刷新中...' : '刷新数据'"></span>
                     </button>
                 </div>
             </div>
@@ -732,8 +753,8 @@
                 <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8v-7"/>
                 </svg>
-                <p class="text-gray-600 text-lg font-semibold mb-2">选择范围后查询统计</p>
-                <p class="text-gray-400 text-sm">查询后展示总览卡片、趋势图和排行明细</p>
+                <p class="text-gray-600 text-lg font-semibold mb-2" v-text="loading ? '正在加载统计数据...' : '选择范围后查看统计'"></p>
+                <p class="text-gray-400 text-sm">切换房间或统计周期将自动刷新总览、趋势与明细</p>
             </div>
         </div>
         {% endraw %}
@@ -1145,6 +1166,7 @@
     </div>
 
     <script src="/static/vendor/echarts.min.js"></script>
+    <script src="/static/js/ui-kit.js"></script>
     <script src="/static/js/stats.js"></script>
 </body>
 </html>

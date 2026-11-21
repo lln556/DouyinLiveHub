@@ -1,20 +1,21 @@
 /**
- * 房间详情页 - 实时数据页面逻辑
+ * 房间详情页 - 实时数据与冷启动回填逻辑
  */
 const app = new Vue({
     el: '#app',
     data: {
         liveId: null,
-        live_id: null,  // 用于模板显示
+        live_id: null,
         room: null,
         loading: true,
         actionLoading: false,
-        activeTab: 'all', // all/chat/gift
-        activeRankTab: 'gift', // gift/like 右侧栏 tab
+        recentMessagesLoading: false,
+        activeTab: 'all',
+        activeRankTab: 'gift',
         messages: [],
-        lastSession: null,  // 上次直播场次
-        sessions: [],  // 历史场次列表
-        showSessionsModal: false,  // 是否显示历史场次弹窗
+        lastSession: null,
+        sessions: [],
+        showSessionsModal: false,
         stats: {
             currentUserCount: 0,
             totalUserCount: 0,
@@ -30,8 +31,8 @@ const app = new Vue({
         roomInfoRefreshTimer: null,
         nowTickTimer: null,
         nowTick: Date.now(),
-        isAtBottom: true,  // 用户是否在底部
-        unreadCount: 0,  // 未读消息数量
+        isAtBottom: true,
+        unreadCount: 0,
         userNameSearch: '',
         userSearchLoading: false,
         userSearchError: '',
@@ -41,7 +42,6 @@ const app = new Vue({
         userSearchBlurTimer: null,
         userSearchDebounceTimer: null,
         userSearchRequestSeq: 0,
-        // 用户消息模态框
         showUserMessagesModal: false,
         userMessagesLoading: false,
         userMessagesTab: 'all',
@@ -65,16 +65,28 @@ const app = new Vue({
         userMessagesQuery: {
             user_id: null,
             user_name: null,
-            session_id: null  // 用于记录当前查询的场次ID
+            session_id: null
         },
         maxRealtimeMessages: 500
     },
     computed: {
         isArchived() {
-            return this.room && (this.room.is_archived || this.room.status === 'archived' || Boolean(this.room.archived_at));
+            return Boolean(this.room && (this.room.is_archived || this.room.status === 'archived' || Boolean(this.room.archived_at)));
+        },
+        isMonitorActive() {
+            if (!this.room || this.isArchived) return false;
+            return this.room.is_active === true || this.room.status === 'monitoring';
         },
         canStartMonitoring() {
-            return this.room && !this.isArchived && this.room.status !== 'monitoring';
+            return Boolean(this.room && !this.isArchived && !this.isMonitorActive);
+        },
+        showLiveMetricCards() {
+            return Boolean(
+                this.currentSession ||
+                Number(this.stats.currentUserCount || 0) > 0 ||
+                Number(this.stats.totalLikeCount || 0) > 0 ||
+                Number(this.stats.contributorCount || 0) > 0
+            );
         },
         roomStatusNote() {
             if (!this.room || !this.room.error_message) {
@@ -138,12 +150,12 @@ const app = new Vue({
         this._roomInfoSeq = 0;
         this._wsStatsVersion = 0;
         this._sessionSyncInFlight = false;
+        this._prefilledSessionId = null;
 
         const metaEl = document.querySelector('meta[name="live-id"]');
         this.liveId = metaEl ? metaEl.content : '';
         this.live_id = this.liveId;
 
-        // 先发起初始加载并初始化 Socket.IO
         this.loadRoomInfo();
         this.loadCurrentSession();
         this.loadSessionContributors();
@@ -178,18 +190,10 @@ const app = new Vue({
         };
         document.addEventListener('keydown', this._keydownHandler);
 
-        // 添加滚动监听与用户名点击委托
         this.$nextTick(() => {
             const container = document.querySelector('.messages-container');
             if (container) {
                 container.addEventListener('scroll', this.handleScroll, { passive: true });
-                this._msgClickHandler = (e) => {
-                    const userEl = e.target.closest('.user-highlight');
-                    if (userEl && userEl.dataset.userId) {
-                        this.openUserMessagesModal(userEl.dataset.userId, userEl.dataset.userName || userEl.textContent);
-                    }
-                };
-                container.addEventListener('click', this._msgClickHandler);
             }
         });
     },
@@ -222,9 +226,6 @@ const app = new Vue({
         const container = document.querySelector('.messages-container');
         if (container) {
             container.removeEventListener('scroll', this.handleScroll);
-            if (this._msgClickHandler) {
-                container.removeEventListener('click', this._msgClickHandler);
-            }
         }
     },
     methods: {
@@ -240,6 +241,11 @@ const app = new Vue({
             if (!this.room || !this.pendingRoomState) return;
             if (this.pendingRoomState.room_status) {
                 this.room.status = this.pendingRoomState.room_status;
+                if (['monitoring', 'offline', 'waiting'].includes(this.pendingRoomState.room_status)) {
+                    this.room.is_active = true;
+                } else if (['stopped', 'error', 'archived'].includes(this.pendingRoomState.room_status)) {
+                    this.room.is_active = false;
+                }
             }
             if (Object.prototype.hasOwnProperty.call(this.pendingRoomState, 'room_error_message')) {
                 this.room.error_message = this.pendingRoomState.room_error_message;
@@ -259,14 +265,12 @@ const app = new Vue({
                 if (data.room) {
                     this.room = data.room;
                     this.applyPendingRoomState();
-                    // 如果请求在途时已有更新的 WS 统计推送到达，不再用旧 HTTP 统计覆盖实时值
                     if (data.room.stats && this._wsStatsVersion === wsVersionBefore) {
                         this.mergeStats(data.room.stats, { preserveEmptyContributors: true });
                     }
                     const anchorName = data.room.anchor_name || this.liveId;
                     document.title = `${anchorName} - 直播详情`;
 
-                    // 后台/多标签页切停止或归档时同步清除残留当场直播卡片
                     if (options.syncSession) {
                         if (data.room.status !== 'monitoring' && this.currentSession) {
                             await this.loadCurrentSession();
@@ -298,6 +302,10 @@ const app = new Vue({
                 }
                 if (data.session && data.session.status === 'live') {
                     this.currentSession = data.session;
+                    if (data.session.id && this._prefilledSessionId !== data.session.id) {
+                        this._prefilledSessionId = data.session.id;
+                        this.loadRecentSessionMessages(data.session.id);
+                    }
                 } else {
                     this.currentSession = null;
                     if (hadLive) {
@@ -310,9 +318,53 @@ const app = new Vue({
                 this._sessionSyncInFlight = false;
             }
         },
+        async loadRecentSessionMessages(sessionId) {
+            if (!sessionId || this.recentMessagesLoading) return;
+            this.recentMessagesLoading = true;
+            try {
+                const params = new URLSearchParams({
+                    type: 'all',
+                    session_id: String(sessionId),
+                    limit: '50'
+                });
+                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/messages?${params}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                const rawList = Array.isArray(data.messages) ? data.messages : [];
+                if (rawList.length === 0) return;
+
+                // 后端按倒序返回最新 50 条，翻转为时间正序后铺底到实时流之前
+                const historical = rawList.slice().reverse().map((item) => Object.freeze({
+                    type: item.type || 'chat',
+                    user: item.user || item.user_name || '匿名用户',
+                    user_id: item.user_id || null,
+                    user_level: item.user_level || 0,
+                    fans_club_level: item.fans_club_level || 0,
+                    text: item.text !== undefined && item.text !== null ? item.text : item.content,
+                    is_gift_user: Boolean(item.is_gift_user),
+                    gift_name: item.gift_name,
+                    gift_count: item.gift_count,
+                    gift_price: item.gift_price,
+                    total_value: item.total_value,
+                    is_history: true,
+                    _id: ++this._msgSeq
+                }));
+
+                const merged = historical.concat(this.messages);
+                if (merged.length > this.maxRealtimeMessages) {
+                    merged.splice(0, merged.length - this.maxRealtimeMessages);
+                }
+                this.messages = merged;
+                this.$nextTick(() => this.scrollToBottom());
+            } catch (error) {
+                console.error('加载近期消息失败:', error);
+            } finally {
+                this.recentMessagesLoading = false;
+            }
+        },
         async loadHistorySessions() {
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/sessions?limit=10`);
+                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/sessions?limit=15`);
                 const data = await response.json();
 
                 if (data.sessions) {
@@ -338,19 +390,26 @@ const app = new Vue({
                 const data = await response.json();
 
                 if (response.ok) {
+                    window.HubUI.toast('已启动房间监控', 'success');
                     await this.loadRoomInfo();
                 } else {
-                    alert(data.error || '启动失败');
+                    window.HubUI.toast(data.error || '启动失败', 'error');
                 }
             } catch (error) {
-                alert('启动失败: ' + error.message);
+                window.HubUI.toast('启动失败: ' + error.message, 'error');
             } finally {
                 this.actionLoading = false;
             }
         },
         async stopMonitoring() {
             if (this.actionLoading) return;
-            if (!confirm('确定要停止记录吗？')) return;
+            const confirmed = await window.HubUI.confirm({
+                title: '停止房间监控',
+                message: '确定要停止监控当前直播间吗？未开播轮询也会随之停止。',
+                confirmText: '停止监控',
+                danger: true
+            });
+            if (!confirmed) return;
 
             this.actionLoading = true;
             try {
@@ -360,22 +419,28 @@ const app = new Vue({
                 const data = await response.json();
 
                 if (response.ok) {
+                    window.HubUI.toast('已停止房间监控', 'info');
                     await Promise.all([
                         this.loadRoomInfo(),
                         this.loadCurrentSession()
                     ]);
                 } else {
-                    alert(data.error || '停止失败');
+                    window.HubUI.toast(data.error || '停止失败', 'error');
                 }
             } catch (error) {
-                alert('停止失败: ' + error.message);
+                window.HubUI.toast('停止失败: ' + error.message, 'error');
             } finally {
                 this.actionLoading = false;
             }
         },
         async restoreRoom() {
             if (this.actionLoading) return;
-            if (!confirm('确定要把这个直播间恢复到主页吗？恢复后可重新启动记录。')) return;
+            const confirmed = await window.HubUI.confirm({
+                title: '恢复到控制台',
+                message: '确定要把此直播间恢复到首页控制台吗？恢复后可重新启动监控。',
+                confirmText: '确认恢复'
+            });
+            if (!confirmed) return;
 
             this.actionLoading = true;
             try {
@@ -385,18 +450,18 @@ const app = new Vue({
                 const data = await response.json();
 
                 if (response.ok) {
+                    window.HubUI.toast('已恢复到首页控制台', 'success');
                     await this.loadRoomInfo();
                 } else {
-                    alert(data.error || '恢复失败');
+                    window.HubUI.toast(data.error || '恢复失败', 'error');
                 }
             } catch (error) {
-                alert('恢复失败: ' + error.message);
+                window.HubUI.toast('恢复失败: ' + error.message, 'error');
             } finally {
                 this.actionLoading = false;
             }
         },
         async loadSessionContributors() {
-            // 首次加载当前场次贡献榜，避免等待 Socket.IO 推送
             const wsVersionBefore = this._wsStatsVersion;
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/session-contributors?limit=100`);
@@ -417,7 +482,6 @@ const app = new Vue({
                             fans_club_level: c.fans_club_level || 0
                         }))
                     };
-                    // 仅当尚未获取真实贡献者总数时兜底赋值，避免用 limit=100 截断真实总数
                     if (!this.stats.contributorCount) {
                         patch.contributorCount = data.total || data.contributors.length;
                     }
@@ -442,10 +506,6 @@ const app = new Vue({
                 this.socket.emit('join', { live_id: this.liveId });
             });
 
-            this.socket.on('disconnect', () => {
-                // 等待自动重连
-            });
-
             this.socket.on(`room_${this.liveId}`, (data) => {
                 this.handleMessage(data);
             });
@@ -454,10 +514,14 @@ const app = new Vue({
                 if (!data) return;
                 this._wsStatsVersion += 1;
 
-                // 实时更新运行状态（如果 this.room 还没返回先暂存）
                 if (this.room) {
                     if (data.room_status) {
                         this.room.status = data.room_status;
+                        if (['monitoring', 'offline', 'waiting'].includes(data.room_status)) {
+                            this.room.is_active = true;
+                        } else if (['stopped', 'error', 'archived'].includes(data.room_status)) {
+                            this.room.is_active = false;
+                        }
                     }
                     if (Object.prototype.hasOwnProperty.call(data, 'room_error_message')) {
                         this.room.error_message = data.room_error_message;
@@ -624,11 +688,21 @@ const app = new Vue({
                 });
             }
         },
+        onStreamUserClick(msg) {
+            if (!msg) return;
+            const userId = msg.user_id || null;
+            const userName = msg.user || msg.user_name || null;
+            if (!userId && !userName) return;
+            this.openUserMessagesModal(userId, userName || userId, {
+                sessionId: this.currentSession ? this.currentSession.id : null,
+                userName: userName
+            });
+        },
         handleScroll() {
             const container = document.querySelector('.messages-container');
             if (!container) return;
 
-            const threshold = 50;  // 距离底部50px内视为在底部
+            const threshold = 50;
             const isBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
 
             if (isBottom !== this.isAtBottom) {
@@ -666,15 +740,13 @@ const app = new Vue({
                 return value.toLocaleString();
             }
         },
-        getStatusClass(status) {
+        getBadgeClass(status) {
             switch (status) {
-                case 'monitoring': return 'bg-green-100 text-green-800';
-                case 'stopped': return 'bg-gray-100 text-gray-800';
+                case 'monitoring': return 'is-live';
                 case 'offline':
-                case 'waiting': return 'bg-yellow-100 text-yellow-800';
-                case 'error': return 'bg-red-100 text-red-800';
-                case 'archived': return 'bg-blue-100 text-blue-800';
-                default: return 'bg-gray-100 text-gray-800';
+                case 'waiting': return 'is-waiting';
+                case 'error': return 'is-error';
+                default: return 'is-stopped';
             }
         },
         getStatusText(status) {
@@ -682,8 +754,8 @@ const app = new Vue({
                 case 'monitoring': return '运行中';
                 case 'stopped': return '已停止';
                 case 'offline':
-                case 'waiting': return '等待中';
-                case 'error': return '错误';
+                case 'waiting': return '等待开播';
+                case 'error': return '异常';
                 case 'archived': return '已归档';
                 default: return status;
             }
@@ -825,15 +897,24 @@ const app = new Vue({
                 user.session_id || (this.currentSession ? this.currentSession.id : null)
             );
         },
-        async openUserMessagesModal(userId, userName, sessionId = null) {
+        async openUserMessagesModal(userId, userName, sessionOrOpts = null) {
+            let sessionId = null;
+            let fallbackUserName = null;
+            if (sessionOrOpts && typeof sessionOrOpts === 'object') {
+                sessionId = sessionOrOpts.sessionId || null;
+                fallbackUserName = sessionOrOpts.userName || null;
+            } else {
+                sessionId = sessionOrOpts;
+            }
+
             this.showUserMessagesModal = true;
             this.userMessagesLoading = true;
             this.userMessagesTab = 'all';
-            this.userMessagesQuery.user_id = userId;
-            this.userMessagesQuery.user_name = null;
+            this.userMessagesQuery.user_id = userId || null;
+            this.userMessagesQuery.user_name = userId ? null : (fallbackUserName || userName || null);
             this.userMessagesQuery.session_id = sessionId || (this.currentSession ? this.currentSession.id : null);
 
-            this.resetUserMessagesData(userId, userName);
+            this.resetUserMessagesData(userId || null, userName || fallbackUserName);
             await this.loadUserMessages();
         },
         closeUserMessagesModal() {

@@ -1,5 +1,5 @@
 /**
- * 首页 - 房间列表页面逻辑
+ * 首页 - 直播监控控制台逻辑
  */
 const app = new Vue({
     el: '#app',
@@ -14,6 +14,8 @@ const app = new Vue({
         busyRooms: {},
         refreshTimer: null,
         refreshInFlight: false,
+        statusFilter: 'all',  // 'all' | 'monitoring' | 'waiting' | 'stopped'
+        searchKeyword: '',
         newRoom: {
             live_id: ''
         },
@@ -98,9 +100,59 @@ const app = new Vue({
             if (!this.douyinCookie.configured) return '';
             const map = { healthy: 'is-ready', suspect: 'is-warn', dead: 'is-danger' };
             return map[this.cookieHealth.status] || '';
+        },
+        extractedLiveIdPreview() {
+            return window.HubUI.extractLiveId(this.newRoom.live_id);
+        },
+        statusFilterLabel() {
+            const labels = {
+                all: '全部',
+                monitoring: '直播监控中',
+                waiting: '等待开播',
+                stopped: '已停止 / 异常'
+            };
+            return labels[this.statusFilter] || '全部';
+        },
+        filteredRooms() {
+            const kw = (this.searchKeyword || '').trim().toLowerCase();
+            const list = this.rooms.filter((room) => {
+                if (this.statusFilter === 'monitoring') {
+                    if (room.status !== 'monitoring' && room.live_status !== 'live') return false;
+                } else if (this.statusFilter === 'waiting') {
+                    if (!['offline', 'waiting'].includes(room.status) || room.live_status === 'live') return false;
+                } else if (this.statusFilter === 'stopped') {
+                    if (!['stopped', 'error'].includes(room.status)) return false;
+                }
+
+                if (kw) {
+                    const name = String(room.anchor_name || '').toLowerCase();
+                    const lid = String(room.live_id || '').toLowerCase();
+                    if (!name.includes(kw) && !lid.includes(kw)) return false;
+                }
+                return true;
+            });
+
+            const weight = (room) => {
+                if (room.live_status === 'live' || room.status === 'monitoring') return 0;
+                if (['offline', 'waiting'].includes(room.status)) return 1;
+                if (room.status === 'error') return 2;
+                return 3;
+            };
+            return list.slice().sort((a, b) => weight(a) - weight(b));
         }
     },
     methods: {
+        setStatusFilter(target) {
+            if (target !== 'all' && this.statusFilter === target) {
+                this.statusFilter = 'all';
+            } else {
+                this.statusFilter = target;
+            }
+        },
+        formatNumber(value) {
+            const num = Number(value || 0);
+            return Number.isFinite(num) ? Math.round(num).toLocaleString() : '0';
+        },
         isRoomBusy(liveId) {
             return Boolean(this.busyRooms[liveId]);
         },
@@ -177,11 +229,15 @@ const app = new Vue({
                 const data = await response.json();
                 if (response.ok) {
                     this.douyinCookie = Object.assign({}, this.douyinCookie, { health: data });
+                    window.HubUI.toast(
+                        data.status === 'healthy' ? 'Cookie 测活通过' : 'Cookie 当前不可用，请检查',
+                        data.status === 'healthy' ? 'success' : 'warning'
+                    );
                 } else {
-                    alert(data.error || '检测失败');
+                    window.HubUI.toast(data.error || '检测失败', 'error');
                 }
             } catch (error) {
-                alert('检测失败: ' + error.message);
+                window.HubUI.toast('检测失败: ' + error.message, 'error');
             } finally {
                 this.cookieChecking = false;
             }
@@ -233,12 +289,12 @@ const app = new Vue({
                     this.proxy = data;
                     this.savingProxy = false;
                     this.closeProxyModal();
-                    alert('代理配置已更新（仅当前运行时生效）：新连接与测活立即生效，已接入房间需重启监控后生效');
+                    window.HubUI.toast('代理配置已更新（新连接立即生效，已接入房间需重启监控）', 'success', 4200);
                 } else {
-                    alert(data.error || '更新失败');
+                    window.HubUI.toast(data.error || '更新失败', 'error');
                 }
             } catch (error) {
-                alert('更新失败: ' + error.message);
+                window.HubUI.toast('更新失败: ' + error.message, 'error');
             } finally {
                 this.savingProxy = false;
             }
@@ -247,7 +303,7 @@ const app = new Vue({
             if (this.cookieSaving) return;
             const cookie = (this.cookieForm.cookie || '').trim();
             if (!cookie) {
-                alert('请粘贴完整 Cookie；如需清空请点击“清空 Cookie”');
+                window.HubUI.toast('请粘贴完整 Cookie；如需清空请点击“清空 Cookie”', 'warning');
                 return;
             }
 
@@ -272,22 +328,29 @@ const app = new Vue({
                     this.cookieForm.cookie = '';
                     this.cookieSaving = false;
                     this.closeCookieModal();
-                    const persistText = data.persisted ? '' : '；但写入 .env 失败，重启后不会保留';
+                    const persistText = data.persisted ? '' : '；但写入 .env 失败';
                     const healthText = data.health && data.health.status === 'healthy'
-                        ? '，测活通过 ✓' : (data.health && data.health.status === 'dead' ? '，但测活未通过 ✗' : '');
-                    alert(`Cookie已更新，已同步 ${data.updated_rooms} 个运行中房间${healthText}${persistText}`);
+                        ? '，测活通过' : (data.health && data.health.status === 'dead' ? '，但测活未通过' : '');
+                    const toastType = data.health && data.health.status === 'dead' ? 'warning' : 'success';
+                    window.HubUI.toast(`Cookie 已更新（同步 ${data.updated_rooms} 个房间${healthText}${persistText}）`, toastType, 4500);
                 } else {
-                    alert(data.error || '更新失败');
+                    window.HubUI.toast(data.error || '更新失败', 'error');
                 }
             } catch (error) {
-                alert('更新失败: ' + error.message);
+                window.HubUI.toast('更新失败: ' + error.message, 'error');
             } finally {
                 this.cookieSaving = false;
             }
         },
         async clearCookieConfig() {
             if (this.cookieSaving) return;
-            if (!confirm('确定要清空抖音 Cookie 吗？清空后可能无法接收礼物消息。')) return;
+            const confirmed = await window.HubUI.confirm({
+                title: '清空抖音 Cookie',
+                message: '清空后可能无法接收直播间礼物消息，确定要清空吗？',
+                confirmText: '确认清空',
+                danger: true
+            });
+            if (!confirmed) return;
 
             this.cookieSaving = true;
             try {
@@ -310,22 +373,22 @@ const app = new Vue({
                     this.cookieForm.cookie = '';
                     this.cookieSaving = false;
                     this.closeCookieModal();
-                    const persistText = data.persisted ? '' : '；但写入 .env 失败，重启后不会保留';
-                    alert(`Cookie已清空，已同步 ${data.updated_rooms} 个运行中房间${persistText}`);
+                    window.HubUI.toast(`Cookie 已清空（同步 ${data.updated_rooms} 个房间）`, 'info');
                 } else {
-                    alert(data.error || '清空失败');
+                    window.HubUI.toast(data.error || '清空失败', 'error');
                 }
             } catch (error) {
-                alert('清空失败: ' + error.message);
+                window.HubUI.toast('清空失败: ' + error.message, 'error');
             } finally {
                 this.cookieSaving = false;
             }
         },
         async addRoom() {
             if (this.addingRoom) return;
-            const liveId = (this.newRoom.live_id || '').trim();
+            const extracted = window.HubUI.extractLiveId(this.newRoom.live_id);
+            const liveId = extracted.liveId;
             if (!liveId) {
-                alert('请输入直播间ID');
+                window.HubUI.toast('请输入直播间 ID 或粘贴直播间链接', 'warning');
                 return;
             }
 
@@ -341,12 +404,13 @@ const app = new Vue({
                 if (response.ok) {
                     this.addingRoom = false;
                     this.closeAddModal();
+                    window.HubUI.toast(`已添加直播间 ${liveId} 并启动监控`, 'success');
                     await this.refreshDashboard();
                 } else {
-                    alert(data.error || '添加失败');
+                    window.HubUI.toast(data.error || '添加失败', 'error');
                 }
             } catch (error) {
-                alert('添加失败: ' + error.message);
+                window.HubUI.toast('添加失败: ' + error.message, 'error');
             } finally {
                 this.addingRoom = false;
             }
@@ -361,19 +425,26 @@ const app = new Vue({
                 const data = await response.json();
 
                 if (response.ok) {
-                    await this.loadRooms();
+                    window.HubUI.toast(`已启动房间 ${liveId} 监控`, 'success');
+                    await this.refreshDashboard();
                 } else {
-                    alert(data.error || '启动失败');
+                    window.HubUI.toast(data.error || '启动失败', 'error');
                 }
             } catch (error) {
-                alert('启动失败: ' + error.message);
+                window.HubUI.toast('启动失败: ' + error.message, 'error');
             } finally {
                 this.setRoomBusy(liveId, false);
             }
         },
         async stopRoom(liveId) {
             if (this.isRoomBusy(liveId)) return;
-            if (!confirm('确定要停止记录吗？')) return;
+            const confirmed = await window.HubUI.confirm({
+                title: '停止房间监控',
+                message: `确定要停止监控直播间 ${liveId} 吗？`,
+                confirmText: '停止监控',
+                danger: true
+            });
+            if (!confirmed) return;
 
             this.setRoomBusy(liveId, true);
             try {
@@ -383,19 +454,29 @@ const app = new Vue({
                 const data = await response.json();
 
                 if (response.ok) {
-                    await this.loadRooms();
+                    window.HubUI.toast(`已停止房间 ${liveId} 监控`, 'info');
+                    await this.refreshDashboard();
                 } else {
-                    alert(data.error || '停止失败');
+                    window.HubUI.toast(data.error || '停止失败', 'error');
                 }
             } catch (error) {
-                alert('停止失败: ' + error.message);
+                window.HubUI.toast('停止失败: ' + error.message, 'error');
             } finally {
                 this.setRoomBusy(liveId, false);
             }
         },
-        async archiveRoom(liveId) {
+        async archiveRoom(roomOrLiveId) {
+            const liveId = typeof roomOrLiveId === 'string' ? roomOrLiveId : roomOrLiveId.live_id;
+            const label = typeof roomOrLiveId === 'string' ? liveId : (roomOrLiveId.anchor_name || roomOrLiveId.live_id);
             if (this.isRoomBusy(liveId)) return;
-            if (!confirm('确定要归档此房间吗？归档后会从主页移除，但历史弹幕、礼物、统计和场次数据都会保留，可在“历史数据”中查看或恢复。')) return;
+
+            const confirmed = await window.HubUI.confirm({
+                title: '归档直播间',
+                message: `确定要归档「${label}」吗？归档后会从主页控制台移出，历史弹幕、礼物和统计数据全部保留，可在“归档管理”查看或恢复。`,
+                confirmText: '确认归档',
+                danger: true
+            });
+            if (!confirmed) return;
 
             this.setRoomBusy(liveId, true);
             try {
@@ -405,12 +486,13 @@ const app = new Vue({
                 const data = await response.json();
 
                 if (response.ok) {
+                    window.HubUI.toast(`已归档「${label}」`, 'success');
                     await this.refreshDashboard();
                 } else {
-                    alert(data.error || '归档失败');
+                    window.HubUI.toast(data.error || '归档失败', 'error');
                 }
             } catch (error) {
-                alert('归档失败: ' + error.message);
+                window.HubUI.toast('归档失败: ' + error.message, 'error');
             } finally {
                 this.setRoomBusy(liveId, false);
             }
@@ -418,17 +500,16 @@ const app = new Vue({
         goToRoom(liveId) {
             window.location.href = `/room/${encodeURIComponent(liveId)}`;
         },
-        getMonitorStatusClass(roomOrStatus) {
+        getMonitorBadgeClass(roomOrStatus) {
             const status = typeof roomOrStatus === 'string'
                 ? roomOrStatus
                 : (roomOrStatus && roomOrStatus.status);
             switch (status) {
-                case 'monitoring': return 'bg-green-100 text-green-800';
+                case 'monitoring': return 'is-live';
                 case 'offline':
-                case 'waiting': return 'bg-yellow-100 text-yellow-800';
-                case 'stopped': return 'bg-gray-100 text-gray-800';
-                case 'error': return 'bg-red-100 text-red-800';
-                default: return 'bg-gray-100 text-gray-800';
+                case 'waiting': return 'is-waiting';
+                case 'error': return 'is-error';
+                default: return 'is-stopped';
             }
         },
         getMonitorStatusText(roomOrStatus) {
@@ -440,7 +521,7 @@ const app = new Vue({
                 case 'offline':
                 case 'waiting': return '等待开播';
                 case 'stopped': return '已停止';
-                case 'error': return '错误';
+                case 'error': return '异常';
                 default: return '未知';
             }
         },
@@ -461,20 +542,6 @@ const app = new Vue({
         },
         getIsMonitoring(room) {
             return room.is_monitor_alive === true;
-        },
-        getLiveStatusClass(status) {
-            switch (status) {
-                case 'live': return 'bg-green-100 text-green-800';
-                case 'offline': return 'bg-gray-100 text-gray-800';
-                default: return 'bg-gray-100 text-gray-800';
-            }
-        },
-        getLiveStatusText(status) {
-            switch (status) {
-                case 'live': return '直播中';
-                case 'offline': return '离线';
-                default: return '未知';
-            }
         }
     }
 });

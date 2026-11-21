@@ -881,7 +881,8 @@ def test_monitor_records_connection_time_only_for_live_room_and_closes_session(m
         start=Mock(side_effect=room.shutdown_event.set), current_session_id=None)
     monkeypatch.setattr("ws_handlers.handlers.WebDouyinLiveFetcher", lambda *a: fetcher)
 
-    def poll():
+    def poll(initial_confirmed_offline=False):
+        assert initial_confirmed_offline is (status is False)
         room.shutdown_event.set()
         return False
 
@@ -890,6 +891,72 @@ def test_monitor_records_connection_time_only_for_live_room_and_closes_session(m
     assert bool(room.last_connect_time) is (status is True)
     assert any("last_connect_time" in values for _, values in manager.data_service.updated) is (status is True)
     core.close.assert_called_once()
+
+
+@pytest.mark.parametrize("initial_confirmed_offline", [False, True])
+def test_poll_debounces_empty_status_after_confirmed_offline(monkeypatch, initial_confirmed_offline):
+    manager = RoomManagerLifecycleTest().make_manager()
+    room = room_manager_module.MonitoredRoom("123", manager)
+    waiting = "主播未开播，等待开播中..."
+    error = "直播间接口返回异常，等待重试..."
+    statuses = ([False] if not initial_confirmed_offline else []) + [None, None, None, False, None, None]
+    expected = ([waiting] if not initial_confirmed_offline else []) + [waiting, waiting, error, waiting, waiting, waiting]
+    probes = iter(statuses)
+    fetchers = []
+
+    def create(*args):
+        fetcher = SimpleNamespace(get_room_status=lambda: next(probes),
+                                  status_error_message=error, close=Mock())
+        fetchers.append(fetcher)
+        return fetcher
+
+    def wait(interval):
+        if len(fetchers) == len(statuses):
+            room.shutdown_event.set()
+            return True
+        return False
+
+    monkeypatch.setattr("crawler.DouyinLiveWebFetcher", create)
+    monkeypatch.setattr(room.shutdown_event, "wait", wait)
+    assert room._poll_room_status(initial_confirmed_offline=initial_confirmed_offline) is False
+    assert [update[2] for update in manager.data_service.status_updates] == expected
+    assert all(update[1] == "offline" for update in manager.data_service.status_updates)
+    assert all(fetcher.close.call_count == 1 for fetcher in fetchers)
+
+
+def test_status_probe_throttle_disabled_does_not_sleep_or_read_clock(monkeypatch):
+    from crawler import fetcher
+
+    monkeypatch.setattr(fetcher.config, "ANTI_DETECTION_ENABLED", False)
+    sleep = Mock(side_effect=AssertionError("disabled throttle must not sleep"))
+    clock = Mock(side_effect=AssertionError("disabled throttle must not read clock"))
+    monkeypatch.setattr(fetcher.time, "sleep", sleep)
+    monkeypatch.setattr(fetcher.time, "monotonic", clock)
+    fetcher._throttle_status_probe()
+    sleep.assert_not_called()
+    clock.assert_not_called()
+
+
+def test_status_probe_throttle_spaces_concurrent_rooms_without_real_sleep(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from crawler import fetcher
+
+    monkeypatch.setattr(fetcher.config, "ANTI_DETECTION_ENABLED", True)
+    monkeypatch.setattr(fetcher, "_LAST_STATUS_PROBE_AT", 0.0)
+    clock = [10.0]
+    sleeps = []
+
+    def sleep(delay):
+        assert fetcher._STATUS_PROBE_LOCK.locked()
+        sleeps.append(delay)
+        clock[0] += delay
+
+    monkeypatch.setattr(fetcher.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(fetcher.time, "sleep", sleep)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(lambda _: fetcher._throttle_status_probe(), range(4)))
+    assert sleeps == [1.5, 1.5, 1.5]
+    assert fetcher._LAST_STATUS_PROBE_AT == 14.5
 
 
 def test_reconnect_uses_interruptible_backoff_with_jitter(monkeypatch):

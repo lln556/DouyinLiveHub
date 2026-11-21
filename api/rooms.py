@@ -2,6 +2,7 @@
 房间管理API路由
 """
 import re
+from datetime import datetime
 
 from flask import Blueprint, request, jsonify
 
@@ -70,8 +71,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
 
             # One query for all ongoing sessions; snapshot rooms before iterating.
             with data_service.get_session() as db:
-                live_sessions = db.query(LiveSession.live_id).filter(LiveSession.status == 'live').all()
-            live_ids = {row.live_id for row in live_sessions}
+                live_sessions = db.query(
+                    LiveSession.id, LiveSession.live_id, LiveSession.total_income,
+                    LiveSession.peak_viewer_count, LiveSession.start_time
+                ).filter(LiveSession.status == 'live').all()
+            live_session_map = {row.live_id: row for row in live_sessions}
             active_status = {}
             with room_manager.lock:
                 active_rooms = list(room_manager.active_rooms.items())
@@ -87,9 +91,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 is_monitor_alive = False
                 if room.live_id in active_status:
                     is_monitor_alive = active_status[room.live_id]['is_active']
+                active_stats = active_status.get(room.live_id, {}).get('stats')
+                live_session = live_session_map.get(room.live_id)
 
                 # 判断直播状态：基于数据库中是否有进行中的直播场次
-                live_status = 'live' if room.live_id in live_ids else 'offline'
+                live_status = 'live' if live_session else 'offline'
 
                 room_dict = {
                     'id': room.live_id,
@@ -100,6 +106,11 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                     'error_message': room.error_message,
                     'live_status': live_status,  # 直播状态: live/offline
                     'is_monitor_alive': is_monitor_alive,  # 监控线程是否活跃
+                    'monitor_type': room.monitor_type,
+                    'auto_reconnect': bool(room.auto_reconnect),
+                    'current_user_count': int((active_stats or {}).get('current_user_count') or 0) if is_monitor_alive else 0,
+                    'session_income': round(max(float(live_session.total_income or 0), float((active_stats or {}).get('total_income') or 0)), 2) if live_session else 0.0,
+                    'current_session_id': live_session.id if live_session else None,
                     'is_archived': bool(room.archived_at or room.status == 'archived'),
                     'archived_at': room.archived_at.isoformat() if room.archived_at else None
                 }
@@ -295,11 +306,20 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             page = _parse_int_param(request.args.get('page'), 'page', 1, 1, 2147483647)
             offset = _parse_int_param(request.args.get('offset'), 'offset', (page - 1) * page_size, 0, 2147483647)
             msg_type = request.args.get('type', 'all')  # chat/gift/all
+            raw_session_id = request.args.get('session_id')
+            session_id = _parse_int_param(raw_session_id, 'session_id', None, 1, 2147483647) if raw_session_id else None
 
             # 获取消息总数
-            counts = data_service.get_message_counts(live_id)
+            if session_id is not None:
+                counts = dict(data_service.get_session_message_counts(session_id))
+                counts['total_count'] = counts['chat_count'] + counts['gift_count']
+            else:
+                counts = data_service.get_message_counts(live_id)
 
-            if msg_type == 'chat':
+            if session_id is not None and msg_type in ('chat', 'gift'):
+                total = counts[f'{msg_type}_count']
+                messages_data = data_service.get_session_messages(session_id, msg_type, page_size, offset)
+            elif msg_type == 'chat':
                 total = counts['chat_count']
                 messages = data_service.get_chat_messages(live_id, page_size, offset)
                 messages_data = [
@@ -308,8 +328,10 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                         'type': 'chat',
                         'live_id': msg.live_id,
                         'anchor_name': msg.anchor_name,
+                        'user_id': msg.user_id,
                         'user_name': msg.user_name,
                         'user_level': msg.user_level,
+                        'fans_club_level': msg.fans_club_level or 0,
                         'content': msg.content,
                         'is_gift_user': msg.is_gift_user,
                         'created_at': msg.created_at.isoformat() if msg.created_at else None
@@ -325,8 +347,10 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                         'type': 'gift',
                         'live_id': msg.live_id,
                         'anchor_name': msg.anchor_name,
+                        'user_id': msg.user_id,
                         'user_name': msg.user_name,
                         'user_level': msg.user_level,
+                        'fans_club_level': msg.fans_club_level or 0,
                         'gift_name': msg.gift_name,
                         'gift_count': msg.gift_count,
                         'gift_price': msg.gift_price,
@@ -338,7 +362,14 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 ]
             else:  # all
                 total = counts['total_count']
-                messages_data = data_service.get_all_messages(live_id, page_size, offset)
+                if session_id is not None:
+                    messages_data = data_service.get_all_messages(live_id, page_size, offset, session_id=session_id)
+                else:
+                    messages_data = data_service.get_all_messages(live_id, page_size, offset)
+
+            for message in messages_data:
+                if isinstance(message.get('created_at'), datetime):
+                    message['created_at'] = message['created_at'].isoformat()
 
             total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 

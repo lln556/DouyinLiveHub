@@ -226,6 +226,9 @@ def test_stats_like_tab_preserved_when_switching_back_to_all_rooms(authed_page, 
 
     authed_page.goto(f"{base_url}/stats", wait_until="domcontentloaded")
     _wait_vue_ready(authed_page)
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.hasSearched === true && vm.loading === false; }"
+    )
 
     room_select = authed_page.locator("select").first
     room_select.select_option("e2e_stats_01")
@@ -240,3 +243,203 @@ def test_stats_like_tab_preserved_when_switching_back_to_all_rooms(authed_page, 
     authed_page.wait_for_timeout(200)
     assert authed_page.evaluate("() => document.querySelector('#app').__vue__.hasSearched") is True
     assert "全站榜一" in authed_page.locator("body").inner_text()
+
+
+def test_index_add_room_modal_extracts_live_id_from_douyin_share_url(authed_page, base_url):
+    """首页添加直播间弹窗从分享链接提取直播间号 261378947940 并作为 live_id 提交。"""
+    captured = []
+
+    def handle_rooms(route):
+        if route.request.method == "POST":
+            captured.append(json.loads(route.request.post_data or "{}"))
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"message": "ok", "room": {"live_id": "261378947940"}}),
+            )
+        else:
+            route.continue_()
+
+    authed_page.route("**/api/rooms", handle_rooms)
+    authed_page.goto(f"{base_url}/", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    authed_page.get_by_role("button", name="+ 添加直播间").click()
+    room_input = authed_page.locator("input[placeholder*='live.douyin.com']")
+    room_input.fill("来看看直播 https://live.douyin.com/261378947940?enter_from_merge=link_share 复制打开抖音")
+
+    authed_page.get_by_text("已从链接自动提取房间标识：261378947940").wait_for()
+    authed_page.get_by_role("button", name="确认添加").click()
+    authed_page.wait_for_function("() => document.querySelector('#app').__vue__.showAddModal === false")
+
+    assert len(captured) == 1
+    assert captured[0].get("live_id") == "261378947940"
+
+
+def test_room_active_offline_button_prefill_and_stream_user_click(authed_page, base_url, factories):
+    """房间页在 24h 等待中显示停止监控、冷启动回填历史消息、点击用户打开详情弹窗。"""
+    factories.room(live_id="e2e_room_ux_01", anchor_name="交互验证主播")
+
+    authed_page.route(
+        "**/api/rooms/e2e_room_ux_01",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "room": {
+                        "live_id": "e2e_room_ux_01",
+                        "anchor_name": "交互验证主播",
+                        "status": "offline",
+                        "is_active": True,
+                        "is_archived": False,
+                        "status_text": "主播未开播，等待开播中...",
+                    }
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/e2e_room_ux_01/current-session",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"session": {"id": 777, "status": "live", "viewer_count": 42, "total_income": 88}}),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/e2e_room_ux_01/messages*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "messages": [
+                        {"type": "chat", "user": "弹幕老观众", "user_id": "u_hist_1", "text": "后发的第二条"},
+                        {"type": "chat", "user": "弹幕老观众", "user_id": "u_hist_1", "text": "先发的第一条"},
+                    ]
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/api/rooms/e2e_room_ux_01/user-messages*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "user": {"user_id": "u_hist_1", "nickname": "弹幕老观众"},
+                    "stats": {
+                        "total_messages": 2,
+                        "chat_count": 2,
+                        "gift_count": 0,
+                        "like_count": 0,
+                        "total_value": 0,
+                    },
+                    "messages": [
+                        {"type": "chat", "content": "先发的第一条", "created_at": "2026-11-21T16:00:00"}
+                    ],
+                    "pagination": {"page": 1, "page_size": 50, "total": 1, "total_pages": 1},
+                }
+            ),
+        ),
+    )
+
+    authed_page.goto(f"{base_url}/room/e2e_room_ux_01", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    authed_page.get_by_role("button", name="停止监控").wait_for()
+    assert authed_page.get_by_role("button", name="启动监控").count() == 0
+    assert authed_page.get_by_role("button", name="历史场次").is_visible()
+    assert authed_page.get_by_role("link", name="房间统计").is_visible()
+
+    authed_page.wait_for_function(
+        "() => { const el = document.querySelector('.messages-container'); return el && el.innerText.includes('先发的第一条') && el.innerText.includes('后发的第二条'); }"
+    )
+    container_text = authed_page.locator(".messages-container").inner_text()
+    assert container_text.index("先发的第一条") < container_text.index("后发的第二条")
+
+    authed_page.locator(".messages-container .user-highlight").first.click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showUserMessagesModal === true && vm.userMessagesLoading === false; }"
+    )
+    assert "弹幕老观众" in authed_page.locator("body").inner_text()
+
+
+def test_stats_deeplink_query_params_and_auto_load(authed_page, base_url, factories):
+    """统计页识别 ?live_id=...&range=total 深链并在首屏自动完成查询。"""
+    factories.room(live_id="e2e_deep_01", anchor_name="深链测试主播")
+
+    authed_page.goto(f"{base_url}/stats?live_id=e2e_deep_01&range=total", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.hasSearched === true && vm.loading === false; }"
+    )
+
+    state = authed_page.evaluate(
+        "() => ({ room: document.querySelector('#app').__vue__.selectedRoomId, range: document.querySelector('#app').__vue__.timeRange })"
+    )
+    assert state == {"room": "e2e_deep_01", "range": "total"}
+    assert authed_page.locator("a[href='/room/e2e_deep_01']").is_visible()
+
+
+def test_history_custom_hard_delete_modal_and_stats_link(authed_page, base_url):
+    """归档页展示查看统计直链并通过自定义确认弹窗与点击填入 ID 完成永久删除。"""
+    delete_hits = []
+
+    authed_page.route(
+        "**/api/rooms/archived*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "rooms": [
+                        {
+                            "live_id": "e2e_arch_01",
+                            "anchor_name": "归档测试主播",
+                            "total_sessions": 3,
+                            "total_income": 520,
+                            "total_chat_count": 10,
+                            "total_gift_count": 2,
+                            "archived_at": "2026-11-21T12:00:00",
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+
+    def handle_hard_delete(route):
+        if route.request.method == "DELETE":
+            payload = json.loads(route.request.post_data or "{}")
+            delete_hits.append(payload)
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"message": "deleted"}),
+            )
+        else:
+            route.continue_()
+
+    authed_page.route("**/api/rooms/e2e_arch_01/hard-delete*", handle_hard_delete)
+    authed_page.goto(f"{base_url}/history", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    authed_page.get_by_text("归档测试主播").first.wait_for()
+    assert authed_page.locator("a[href='/stats?live_id=e2e_arch_01&range=total']:visible").count() >= 1
+
+    authed_page.locator("button:visible", has_text="永久删除").first.click()
+    dialog = authed_page.locator(".hub-dialog-overlay")
+    dialog.wait_for()
+    confirm_btn = dialog.get_by_role("button", name="确认永久删除")
+    assert confirm_btn.is_disabled()
+
+    dialog.get_by_role("button", name="点击填入 ID").click()
+    assert confirm_btn.is_enabled()
+    confirm_btn.click()
+
+    dialog.wait_for(state="detached")
+    assert delete_hits == [{"confirm_live_id": "e2e_arch_01"}]
+

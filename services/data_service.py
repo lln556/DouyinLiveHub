@@ -498,13 +498,17 @@ class DataService:
         finally:
             session.close()
 
-    def get_all_messages(self, live_id: str, limit: int = 100, offset: int = 0) -> List[Dict]:
+    def get_all_messages(self, live_id: str, limit: int = 100, offset: int = 0,
+                         session_id: Optional[int] = None) -> List[Dict]:
         """Only merge each table's first offset+limit rows."""
         session = self.get_session()
         try:
             messages = []
             for model, kind in [(ChatMessage, 'chat'), (GiftMessage, 'gift')]:
-                rows = session.query(model).filter(model.live_id == live_id).order_by(
+                query = session.query(model).filter(model.live_id == live_id)
+                if session_id is not None:
+                    query = query.filter(model.live_session_id == session_id)
+                rows = query.order_by(
                     model.created_at.desc(), model.id.desc()).limit(offset + limit).all()
                 for msg in rows:
                     messages.append(dict(type=kind, id=msg.id, user_name=msg.user_name,
@@ -512,7 +516,13 @@ class DataService:
                         display_content=msg.content if kind == 'chat' else f'{msg.user_name} 赠送了 {msg.gift_name}x{msg.gift_count}',
                         gift_name=msg.gift_name if kind == 'gift' else None,
                         gift_count=msg.gift_count if kind == 'gift' else None,
-                        total_value=msg.total_value if kind == 'gift' else None))
+                        total_value=msg.total_value if kind == 'gift' else None,
+                        user=msg.user_name, user_id=msg.user_id,
+                        fans_club_level=msg.fans_club_level or 0,
+                        text=msg.content if kind == 'chat' else None,
+                        is_gift_user=bool(msg.is_gift_user) if kind == 'chat' else False,
+                        gift_price=msg.gift_price if kind == 'gift' else None,
+                        live_session_id=msg.live_session_id))
             messages.sort(key=lambda row: (row['created_at'], row['id']), reverse=True)
             return messages[offset:offset + limit]
         finally:
@@ -1114,10 +1124,18 @@ class DataService:
 
                 return [{
                     'id': msg.id,
+                    'type': 'chat',
+                    'live_id': msg.live_id,
+                    'live_session_id': msg.live_session_id,
+                    'anchor_name': msg.anchor_name,
                     'user_id': msg.user_id,
                     'nickname': msg.user_name,
+                    'user_name': msg.user_name,
+                    'user': msg.user_name,
                     'user_level': msg.user_level,
                     'content': msg.content,
+                    'text': msg.content,
+                    'is_gift_user': bool(msg.is_gift_user),
                     'fans_club_level': msg.fans_club_level or 0,
                     'created_at': msg.created_at.isoformat() if msg.created_at else None
                 } for msg in messages]
@@ -1129,11 +1147,22 @@ class DataService:
 
                 return [{
                     'id': msg.id,
+                    'type': 'gift',
+                    'live_id': msg.live_id,
+                    'live_session_id': msg.live_session_id,
+                    'anchor_name': msg.anchor_name,
                     'user_id': msg.user_id,
                     'nickname': msg.user_name,
+                    'user_name': msg.user_name,
+                    'user': msg.user_name,
                     'user_level': msg.user_level,
                     'gift_name': msg.gift_name,
                     'gift_count': msg.gift_count,
+                    'gift_price': msg.gift_price,
+                    'total_value': msg.total_value,
+                    'send_type': msg.send_type,
+                    'text': None,
+                    'is_gift_user': False,
                     'combo_count': msg.gift_count if msg.send_type == 'combo' else 1,
                     'diamond_count': msg.total_value,
                     'fans_club_level': msg.fans_club_level or 0,

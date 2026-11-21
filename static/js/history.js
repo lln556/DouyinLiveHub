@@ -1,14 +1,25 @@
 /**
- * 历史数据页面逻辑
+ * 归档管理页面逻辑
  */
 const app = new Vue({
     el: '#app',
     data: {
         loading: true,
         rooms: [],
-        error: ''
+        error: '',
+        searchKeyword: '',
+        busyRooms: {}
     },
     computed: {
+        filteredRooms() {
+            const kw = (this.searchKeyword || '').trim().toLowerCase();
+            if (!kw) return this.rooms;
+            return this.rooms.filter(room => {
+                const name = String(room.anchor_name || '').toLowerCase();
+                const lid = String(room.live_id || '').toLowerCase();
+                return name.includes(kw) || lid.includes(kw);
+            });
+        },
         summary() {
             return this.rooms.reduce((acc, room) => {
                 acc.totalRooms += 1;
@@ -28,6 +39,16 @@ const app = new Vue({
         this.loadArchivedRooms();
     },
     methods: {
+        isRoomBusy(liveId) {
+            return Boolean(this.busyRooms[liveId]);
+        },
+        setRoomBusy(liveId, busy) {
+            if (busy) {
+                this.$set(this.busyRooms, liveId, true);
+            } else {
+                this.$delete(this.busyRooms, liveId);
+            }
+        },
         async loadArchivedRooms() {
             this.loading = true;
             this.error = '';
@@ -45,9 +66,19 @@ const app = new Vue({
                 this.loading = false;
             }
         },
-        async restoreRoom(liveId) {
-            if (!confirm('确定要把这个直播间恢复到主页吗？恢复后可重新启动记录。')) return;
+        async restoreRoom(roomOrLiveId) {
+            const liveId = typeof roomOrLiveId === 'string' ? roomOrLiveId : roomOrLiveId.live_id;
+            const label = typeof roomOrLiveId === 'string' ? liveId : (roomOrLiveId.anchor_name || roomOrLiveId.live_id);
+            if (this.isRoomBusy(liveId)) return;
 
+            const confirmed = await window.HubUI.confirm({
+                title: '恢复直播间到控制台',
+                message: `确定要把「${label}」恢复到首页控制台吗？恢复后可随时启动监控。`,
+                confirmText: '确认恢复'
+            });
+            if (!confirmed) return;
+
+            this.setRoomBusy(liveId, true);
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/restore`, {
                     method: 'POST'
@@ -56,20 +87,23 @@ const app = new Vue({
                 if (!response.ok) {
                     throw new Error(data.error || '恢复失败');
                 }
+                window.HubUI.toast(`已恢复「${label}」到控制台`, 'success');
                 await this.loadArchivedRooms();
             } catch (error) {
-                alert('恢复失败: ' + error.message);
+                window.HubUI.toast('恢复失败: ' + error.message, 'error');
+            } finally {
+                this.setRoomBusy(liveId, false);
             }
         },
-        async hardDeleteRoom(liveId) {
-            const confirmedLiveId = prompt(`永久删除会删除直播间 ${liveId} 的所有弹幕、礼物、统计、用户贡献和场次数据，无法恢复。\n\n请输入直播间ID确认永久删除：`);
-            if (confirmedLiveId !== liveId) {
-                if (confirmedLiveId !== null) {
-                    alert('输入的直播间ID不匹配，已取消永久删除');
-                }
-                return;
-            }
+        async hardDeleteRoom(roomOrLiveId) {
+            const liveId = typeof roomOrLiveId === 'string' ? roomOrLiveId : roomOrLiveId.live_id;
+            const anchorName = typeof roomOrLiveId === 'string' ? '' : (roomOrLiveId.anchor_name || '');
+            if (this.isRoomBusy(liveId)) return;
 
+            const confirmed = await window.HubUI.confirmHardDelete({ liveId, anchorName });
+            if (!confirmed) return;
+
+            this.setRoomBusy(liveId, true);
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/hard-delete`, {
                     method: 'DELETE',
@@ -80,9 +114,12 @@ const app = new Vue({
                 if (!response.ok) {
                     throw new Error(data.error || '永久删除失败');
                 }
+                window.HubUI.toast(`已永久删除直播间 ${liveId}`, 'success');
                 await this.loadArchivedRooms();
             } catch (error) {
-                alert('永久删除失败: ' + error.message);
+                window.HubUI.toast('永久删除失败: ' + error.message, 'error');
+            } finally {
+                this.setRoomBusy(liveId, false);
             }
         },
         goToRoom(liveId) {

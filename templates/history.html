@@ -8,146 +8,213 @@
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico">
     <script src="/static/vendor/vue.min.js"></script>
     <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
+    <link href="/static/css/app-ui.css" rel="stylesheet">
     <style>
         .table-row {
             transition: background-color 0.15s ease-in-out;
         }
         .table-row:hover {
-            background-color: #eff6ff;
-        }
-        [v-cloak] {
-            display: none;
-        }
-        .action-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 500;
-            transition: color 0.15s ease-in-out, opacity 0.15s ease-in-out;
-        }
-        .stat-card {
-            transition: all 0.2s ease-in-out;
-        }
-        .stat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: #f8fafc;
         }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-900">
-    <div id="app" v-cloak class="container mx-auto px-4 py-8">
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
-            <div>
-                <h1 class="text-3xl font-bold">归档管理</h1>
-                <p class="text-sm text-gray-600 mt-2">已归档直播间的数据仍可查看、统计和恢复。</p>
-            </div>
-            <div class="flex flex-wrap gap-3">
-                <a href="/" class="px-4 py-2 bg-gray-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 ease-in-out hover:bg-gray-600 hover:shadow-md hover:-translate-y-0.5 active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
-                    返回主页
+<body class="min-h-screen text-gray-900">
+    <div id="app" v-cloak>
+        <!-- 全站统一顶部导航栏 -->
+        <nav class="hub-navbar">
+            <div class="hub-navbar-inner">
+                <a href="/" class="hub-brand">
+                    <span class="hub-brand-mark" aria-hidden="true">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/>
+                        </svg>
+                    </span>
+                    <span>抖音直播记录站</span>
                 </a>
-                <a href="/stats" class="px-4 py-2 bg-indigo-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 ease-in-out hover:bg-indigo-600 hover:shadow-md hover:-translate-y-0.5 active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
-                    数据统计
-                </a>
-                <form method="post" action="/logout" class="inline">
-                    <button type="submit" class="px-4 py-2 bg-gray-500 text-white rounded-lg font-medium shadow-sm transition-all duration-200 ease-in-out hover:bg-gray-600 hover:shadow-md hover:-translate-y-0.5 active:scale-95 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
-                        退出登录
-                    </button>
-                </form>
+                <div class="hub-nav-links">
+                    <a href="/" class="hub-nav-link">直播控制台</a>
+                    <a href="/stats" class="hub-nav-link">数据统计</a>
+                    <a href="/history" class="hub-nav-link is-active">归档管理</a>
+                </div>
+                <div class="hub-nav-right">
+                    <form method="post" action="/logout" class="inline">
+                        <button type="submit" class="hub-logout-btn">退出登录</button>
+                    </form>
+                </div>
             </div>
-        </div>
+        </nav>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div class="stat-card bg-white rounded-lg shadow p-4 cursor-default">
-                <div class="text-2xl font-bold text-blue-600" v-text="formatNumber(summary.totalRooms)"></div>
-                <div class="text-sm text-gray-600">归档房间</div>
-            </div>
-            <div class="stat-card bg-white rounded-lg shadow p-4 cursor-default">
-                <div class="text-2xl font-bold text-green-600" v-text="formatNumber(summary.totalSessions)"></div>
-                <div class="text-sm text-gray-600">历史场次</div>
-            </div>
-            <div class="stat-card bg-white rounded-lg shadow p-4 cursor-default">
-                <div class="text-2xl font-bold text-purple-600" v-text="formatNumber(summary.totalIncome)"></div>
-                <div class="text-sm text-gray-600">总收入(钻石)</div>
-            </div>
-            <div class="stat-card bg-white rounded-lg shadow p-4 cursor-default">
-                <div class="text-2xl font-bold text-indigo-600" v-text="formatNumber(summary.totalMessages)"></div>
-                <div class="text-sm text-gray-600">弹幕总数</div>
-            </div>
-        </div>
-
-        <div class="bg-white rounded-lg shadow">
-            <div class="px-6 py-4 border-b flex items-center justify-between">
-                <h2 class="text-xl font-bold text-gray-900">归档直播间</h2>
+        <main class="hub-container">
+            <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">归档管理</h1>
+                    <p class="text-sm text-gray-500 mt-1">已归档直播间保留全部历史场次、弹幕与礼物，可一键查看统计或恢复至控制台。</p>
+                </div>
                 <button
                     @click="loadArchivedRooms"
                     :disabled="loading"
-                    class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium shadow-sm transition-all duration-200 ease-in-out hover:bg-blue-600 hover:shadow-md disabled:bg-blue-300 disabled:shadow-none active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2">
-                    <span v-text="loading ? '刷新中...' : '刷新'"></span>
+                    class="hub-btn hub-btn-primary self-start sm:self-auto">
+                    <span v-text="loading ? '刷新中...' : '刷新列表'"></span>
                 </button>
-            </div>
+            </header>
 
-            <div v-if="error" class="m-6 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm" v-text="error"></div>
+            <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="hub-stat-card">
+                    <div class="text-2xl font-bold text-blue-600" v-text="formatNumber(summary.totalRooms)"></div>
+                    <div class="text-xs font-medium text-gray-500 mt-1">归档房间</div>
+                </div>
+                <div class="hub-stat-card">
+                    <div class="text-2xl font-bold text-green-600" v-text="formatNumber(summary.totalSessions)"></div>
+                    <div class="text-xs font-medium text-gray-500 mt-1">历史场次</div>
+                </div>
+                <div class="hub-stat-card">
+                    <div class="text-2xl font-bold text-yellow-600" v-text="formatNumber(summary.totalIncome)"></div>
+                    <div class="text-xs font-medium text-gray-500 mt-1">总收入（钻石）</div>
+                </div>
+                <div class="hub-stat-card">
+                    <div class="text-2xl font-bold text-indigo-600" v-text="formatNumber(summary.totalMessages)"></div>
+                    <div class="text-xs font-medium text-gray-500 mt-1">弹幕总数</div>
+                </div>
+            </section>
 
-            <div class="overflow-x-auto">
-                <table class="w-full">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">直播间</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">数据时间</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">场次</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">收入</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">弹幕</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">礼物</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">归档时间</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200">
-                        <tr v-if="!loading && rooms.length === 0">
-                            <td colspan="8" class="px-6 py-10 text-center text-gray-500">
-                                暂无归档直播间
-                            </td>
-                        </tr>
-                        <tr v-if="loading">
-                            <td colspan="8" class="px-6 py-10 text-center text-gray-500">
-                                正在加载历史数据...
-                            </td>
-                        </tr>
-                        <tr v-for="room in rooms" :key="room.live_id" class="table-row">
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="font-medium text-gray-900" v-text="room.anchor_name || room.live_id"></div>
-                                <div class="text-xs text-gray-500" v-text="room.live_id"></div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></td>
-                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_sessions)"></td>
-                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-purple-700" v-text="formatNumber(room.total_income)"></td>
-                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_chat_count)"></td>
-                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_gift_count)"></td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700" v-text="formatDateTime(room.archived_at)"></td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <button
-                                    @click="goToRoom(room.live_id)"
-                                    class="action-btn text-blue-600 hover:text-blue-800 hover:underline mr-3">
-                                    查看数据
-                                </button>
-                                <button
-                                    @click="restoreRoom(room.live_id)"
-                                    class="action-btn text-green-600 hover:text-green-800 hover:underline mr-3">
-                                    恢复
-                                </button>
-                                <button
-                                    @click="hardDeleteRoom(room.live_id)"
-                                    class="action-btn text-red-600 hover:text-red-800 hover:underline">
-                                    永久删除
-                                </button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
+            <section class="hub-card overflow-hidden">
+                <div class="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-lg font-bold text-gray-900">已归档直播间</h2>
+                        <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600" v-text="filteredRooms.length + ' 个'"></span>
+                    </div>
+                    <div class="relative w-full sm:w-72">
+                        <input
+                            v-model.trim="searchKeyword"
+                            type="text"
+                            placeholder="搜索主播名称或房间 ID..."
+                            class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+                        </svg>
+                        <button
+                            v-if="searchKeyword"
+                            @click="searchKeyword = ''"
+                            type="button"
+                            class="absolute right-2 top-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>
+                    </div>
+                </div>
+
+                <div v-if="error" class="m-5 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm" v-text="error"></div>
+
+                <!-- 桌面端表格 -->
+                <div class="hidden md:block overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500">直播间</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">数据跨度</th>
+                                <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500">场次</th>
+                                <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500">总收入</th>
+                                <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500">弹幕</th>
+                                <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500">礼物</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">归档时间</th>
+                                <th class="px-5 py-3 text-right text-xs font-semibold text-gray-500">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            <tr v-if="!loading && filteredRooms.length === 0">
+                                <td colspan="8" class="px-6 py-12 text-center text-gray-400 text-sm">
+                                    <span v-text="searchKeyword ? '未找到匹配的归档直播间' : '暂无归档直播间'"></span>
+                                </td>
+                            </tr>
+                            <tr v-if="loading">
+                                <td colspan="8" class="px-6 py-12 text-center text-gray-400 text-sm">正在加载历史数据...</td>
+                            </tr>
+                            <tr v-for="room in filteredRooms" :key="room.live_id" class="table-row">
+                                <td class="px-5 py-3.5 whitespace-nowrap">
+                                    <a :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
+                                       class="font-semibold text-gray-900 hover:text-blue-600 block"
+                                       v-text="room.anchor_name || room.live_id"></a>
+                                    <div class="text-xs text-gray-400 font-mono" v-text="room.live_id"></div>
+                                </td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-xs text-gray-600" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_sessions)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm font-semibold text-yellow-600" v-text="formatNumber(room.total_income)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_chat_count)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-right text-sm text-gray-700" v-text="formatNumber(room.total_gift_count)"></td>
+                                <td class="px-4 py-3.5 whitespace-nowrap text-xs text-gray-500" v-text="formatDateTime(room.archived_at)"></td>
+                                <td class="px-5 py-3.5 whitespace-nowrap text-right text-sm space-x-2">
+                                    <a
+                                        :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
+                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-semibold">
+                                        查看统计
+                                    </a>
+                                    <button
+                                        @click="goToRoom(room.live_id)"
+                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-gray-50 text-gray-700 hover:bg-gray-100 text-xs font-medium">
+                                        房间页
+                                    </button>
+                                    <button
+                                        @click="restoreRoom(room)"
+                                        :disabled="isRoomBusy(room.live_id)"
+                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-green-50 text-green-700 hover:bg-green-100 text-xs font-semibold disabled:opacity-50">
+                                        恢复
+                                    </button>
+                                    <button
+                                        @click="hardDeleteRoom(room)"
+                                        :disabled="isRoomBusy(room.live_id)"
+                                        class="inline-flex items-center px-2.5 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold disabled:opacity-50">
+                                        永久删除
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 移动端卡片视图 -->
+                <div class="md:hidden divide-y divide-gray-100">
+                    <div v-if="loading" class="p-8 text-center text-sm text-gray-400">正在加载历史数据...</div>
+                    <div v-else-if="filteredRooms.length === 0" class="p-8 text-center text-sm text-gray-400"
+                         v-text="searchKeyword ? '未找到匹配的归档直播间' : '暂无归档直播间'"></div>
+                    <article v-for="room in filteredRooms" :key="'m-' + room.live_id" class="p-4 space-y-3">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <a :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
+                                   class="font-bold text-gray-900 truncate block"
+                                   v-text="room.anchor_name || room.live_id"></a>
+                                <div class="text-xs text-gray-400 font-mono truncate" v-text="room.live_id"></div>
+                            </div>
+                            <span class="text-xs text-gray-400 flex-shrink-0" v-text="formatDateRange(room.first_activity_at, room.last_activity_at)"></span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 text-center bg-gray-50 rounded-lg p-2.5 text-xs">
+                            <div>
+                                <div class="text-gray-400">场次</div>
+                                <div class="font-bold text-gray-800 mt-0.5" v-text="formatNumber(room.total_sessions)"></div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">收入</div>
+                                <div class="font-bold text-yellow-600 mt-0.5" v-text="formatNumber(room.total_income)"></div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">弹幕</div>
+                                <div class="font-bold text-gray-800 mt-0.5" v-text="formatNumber(room.total_chat_count)"></div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">礼物</div>
+                                <div class="font-bold text-gray-800 mt-0.5" v-text="formatNumber(room.total_gift_count)"></div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2">
+                            <a :href="'/stats?live_id=' + encodeURIComponent(room.live_id) + '&range=total'"
+                               class="text-center py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold">查看统计</a>
+                            <button @click="goToRoom(room.live_id)" class="py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold">房间页</button>
+                            <button @click="restoreRoom(room)" :disabled="isRoomBusy(room.live_id)" class="py-2 rounded-lg bg-green-50 text-green-700 text-xs font-semibold">恢复</button>
+                            <button @click="hardDeleteRoom(room)" :disabled="isRoomBusy(room.live_id)" class="py-2 rounded-lg bg-red-50 text-red-600 text-xs font-semibold">删除</button>
+                        </div>
+                    </article>
+                </div>
+            </section>
+        </main>
     </div>
 
+    <script src="/static/js/ui-kit.js"></script>
     <script src="/static/js/history.js"></script>
 </body>
 </html>
