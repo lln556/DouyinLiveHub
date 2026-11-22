@@ -48,30 +48,51 @@ const app = new Vue({
             reconnect_active: true
         }
     },
+    watch: {
+        showAddModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.addModal, val, {
+                    getClosedBy: () => (this.addingRoom ? 'none' : 'any'),
+                    onDismiss: () => this.closeAddModal()
+                });
+                if (val) {
+                    document.getElementById('add-room-input')?.focus();
+                }
+            });
+        },
+        showProxyModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.proxyModal, val, {
+                    getClosedBy: () => (this.savingProxy ? 'none' : 'any'),
+                    onDismiss: () => this.closeProxyModal()
+                });
+            });
+        },
+        showCookieModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.cookieModal, val, {
+                    getClosedBy: () => (this.cookieSaving ? 'none' : 'any'),
+                    onDismiss: () => this.closeCookieModal()
+                });
+            });
+        }
+    },
     mounted() {
+        this._addRoomCompEndAt = null;
         this.refreshDashboard();
         this.loadProxyConfig();
 
         this._visibilityHandler = () => {
             if (!document.hidden) {
-                this.refreshDashboard();
+                this.refreshDashboard({ background: true });
             }
         };
         document.addEventListener('visibilitychange', this._visibilityHandler);
 
-        this._keydownHandler = (e) => {
-            if (e.key === 'Escape') {
-                this.closeAddModal();
-                this.closeProxyModal();
-                this.closeCookieModal();
-            }
-        };
-        document.addEventListener('keydown', this._keydownHandler);
-
         // 定时刷新状态（页面在后台时暂停请求，切回前台立即同步）
         this.refreshTimer = setInterval(() => {
             if (!document.hidden) {
-                this.refreshDashboard();
+                this.refreshDashboard({ background: true });
             }
         }, 5000);
     },
@@ -83,13 +104,10 @@ const app = new Vue({
         if (this._visibilityHandler) {
             document.removeEventListener('visibilitychange', this._visibilityHandler);
         }
-        if (this._keydownHandler) {
-            document.removeEventListener('keydown', this._keydownHandler);
-        }
     },
     computed: {
         cookieHealth() {
-            return (this.douyinCookie && this.douyinCookie.health) || { status: 'unknown' };
+            return this.douyinCookie?.health || { status: 'unknown' };
         },
         cookieHealthText() {
             if (!this.douyinCookie.configured) return '未配置';
@@ -138,10 +156,38 @@ const app = new Vue({
                 if (room.status === 'error') return 2;
                 return 3;
             };
-            return list.slice().sort((a, b) => weight(a) - weight(b));
+            return list.toSorted((a, b) => weight(a) - weight(b));
         }
     },
     methods: {
+        onDialogCancel(event, kind) {
+            if (
+                (kind === 'add' && this.addingRoom) ||
+                (kind === 'proxy' && this.savingProxy) ||
+                (kind === 'cookie' && this.cookieSaving)
+            ) {
+                event.preventDefault();
+            }
+        },
+        onDialogClose(kind) {
+            if (kind === 'add') {
+                this.showAddModal = false;
+            } else if (kind === 'proxy') {
+                this.showProxyModal = false;
+            } else if (kind === 'cookie') {
+                this.showCookieModal = false;
+            }
+        },
+        onAddRoomCompositionEnd(event) {
+            this._addRoomCompEndAt = event.timeStamp;
+        },
+        onAddRoomEnter(event) {
+            event.preventDefault();
+            if (window.HubUI.isImeComposing(event, this._addRoomCompEndAt)) {
+                return;
+            }
+            this.addRoom();
+        },
         setStatusFilter(target) {
             if (target !== 'all' && this.statusFilter === target) {
                 this.statusFilter = 'all';
@@ -150,8 +196,7 @@ const app = new Vue({
             }
         },
         formatNumber(value) {
-            const num = Number(value || 0);
-            return Number.isFinite(num) ? Math.round(num).toLocaleString() : '0';
+            return window.HubUI.formatInteger(value);
         },
         isRoomBusy(liveId) {
             return Boolean(this.busyRooms[liveId]);
@@ -163,23 +208,25 @@ const app = new Vue({
                 this.$delete(this.busyRooms, liveId);
             }
         },
-        async refreshDashboard() {
+        async refreshDashboard(options = {}) {
             if (this.refreshInFlight) return;
             this.refreshInFlight = true;
             try {
                 await Promise.all([
-                    this.loadRooms(),
-                    this.loadStats(),
-                    this.loadCookieConfig()
+                    this.loadRooms(options),
+                    this.loadStats(options),
+                    this.loadCookieConfig(options)
                 ]);
             } finally {
                 this.refreshInFlight = false;
             }
         },
-        async loadRooms() {
+        async loadRooms(options = {}) {
             try {
-                const response = await fetch('/api/rooms');
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    '/api/rooms',
+                    options.background ? { priority: 'low' } : {}
+                );
                 if (data.rooms) {
                     this.rooms = data.rooms;
                 }
@@ -187,11 +234,13 @@ const app = new Vue({
                 console.error('加载房间列表失败:', error);
             }
         },
-        async loadStats() {
+        async loadStats(options = {}) {
             try {
-                const response = await fetch('/api/rooms/stats/summary');
-                const data = await response.json();
-                if (response.ok && data) {
+                const { ok, data } = await window.HubUI.requestJson(
+                    '/api/rooms/stats/summary',
+                    options.background ? { priority: 'low' } : {}
+                );
+                if (ok && data) {
                     this.stats = data;
                 }
             } catch (error) {
@@ -200,19 +249,20 @@ const app = new Vue({
         },
         async loadProxyConfig() {
             try {
-                const response = await fetch('/api/proxy');
-                const data = await response.json();
-                if (response.ok && data) {
+                const { ok, data } = await window.HubUI.requestJson('/api/proxy');
+                if (ok && data) {
                     this.proxy = data;
                 }
             } catch (error) {
                 console.error('加载代理配置失败:', error);
             }
         },
-        async loadCookieConfig() {
+        async loadCookieConfig(options = {}) {
             try {
-                const response = await fetch('/api/douyin-cookie');
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    '/api/douyin-cookie',
+                    options.background ? { priority: 'low' } : {}
+                );
                 if (!data.health) {
                     data.health = { status: 'unknown', last_check_time: null, last_ok_time: null, last_error: null };
                 }
@@ -225,10 +275,12 @@ const app = new Vue({
             if (this.cookieChecking) return;
             this.cookieChecking = true;
             try {
-                const response = await fetch('/api/douyin-cookie/check', { method: 'POST' });
-                const data = await response.json();
-                if (response.ok) {
-                    this.douyinCookie = Object.assign({}, this.douyinCookie, { health: data });
+                const { ok, data } = await window.HubUI.requestJson('/api/douyin-cookie/check', {
+                    method: 'POST',
+                    timeoutMs: 30000
+                });
+                if (ok) {
+                    this.douyinCookie = { ...this.douyinCookie, health: data };
                     window.HubUI.toast(
                         data.status === 'healthy' ? 'Cookie 测活通过' : 'Cookie 当前不可用，请检查',
                         data.status === 'healthy' ? 'success' : 'warning'
@@ -243,10 +295,10 @@ const app = new Vue({
             }
         },
         openAddModal() {
-            this.showAddModal = true;
             this.newRoom = {
                 live_id: ''
             };
+            this.showAddModal = true;
         },
         closeAddModal() {
             if (!this.addingRoom) {
@@ -262,11 +314,11 @@ const app = new Vue({
             }
         },
         openCookieModal() {
-            this.showCookieModal = true;
             this.cookieForm = {
                 cookie: '',
                 reconnect_active: true
             };
+            this.showCookieModal = true;
             this.loadCookieConfig();
         },
         closeCookieModal() {
@@ -278,14 +330,13 @@ const app = new Vue({
             if (this.savingProxy) return;
             this.savingProxy = true;
             try {
-                const response = await fetch('/api/proxy', {
+                const { ok, data } = await window.HubUI.requestJson('/api/proxy', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(this.proxy)
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     this.proxy = data;
                     this.savingProxy = false;
                     this.closeProxyModal();
@@ -309,17 +360,17 @@ const app = new Vue({
 
             this.cookieSaving = true;
             try {
-                const response = await fetch('/api/douyin-cookie', {
+                const { ok, data } = await window.HubUI.requestJson('/api/douyin-cookie', {
                     method: 'POST',
+                    timeoutMs: 30000,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         cookie,
                         reconnect_active: this.cookieForm.reconnect_active
                     })
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     this.douyinCookie = {
                         configured: data.configured,
                         length: data.length,
@@ -329,9 +380,9 @@ const app = new Vue({
                     this.cookieSaving = false;
                     this.closeCookieModal();
                     const persistText = data.persisted ? '' : '；但写入 .env 失败';
-                    const healthText = data.health && data.health.status === 'healthy'
-                        ? '，测活通过' : (data.health && data.health.status === 'dead' ? '，但测活未通过' : '');
-                    const toastType = data.health && data.health.status === 'dead' ? 'warning' : 'success';
+                    const healthText = data.health?.status === 'healthy'
+                        ? '，测活通过' : (data.health?.status === 'dead' ? '，但测活未通过' : '');
+                    const toastType = data.health?.status === 'dead' ? 'warning' : 'success';
                     window.HubUI.toast(`Cookie 已更新（同步 ${data.updated_rooms} 个房间${healthText}${persistText}）`, toastType, 4500);
                 } else {
                     window.HubUI.toast(data.error || '更新失败', 'error');
@@ -354,7 +405,7 @@ const app = new Vue({
 
             this.cookieSaving = true;
             try {
-                const response = await fetch('/api/douyin-cookie', {
+                const { ok, data } = await window.HubUI.requestJson('/api/douyin-cookie', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -362,9 +413,8 @@ const app = new Vue({
                         reconnect_active: this.cookieForm.reconnect_active
                     })
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     this.douyinCookie = {
                         configured: data.configured,
                         length: data.length,
@@ -394,14 +444,13 @@ const app = new Vue({
 
             this.addingRoom = true;
             try {
-                const response = await fetch('/api/rooms', {
+                const { ok, data } = await window.HubUI.requestJson('/api/rooms', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ live_id: liveId })
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     this.addingRoom = false;
                     this.closeAddModal();
                     window.HubUI.toast(`已添加直播间 ${liveId} 并启动监控`, 'success');
@@ -419,12 +468,11 @@ const app = new Vue({
             if (this.isRoomBusy(liveId)) return;
             this.setRoomBusy(liveId, true);
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/start`, {
+                const { ok, data } = await window.HubUI.requestJson(`/api/rooms/${encodeURIComponent(liveId)}/start`, {
                     method: 'POST'
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     window.HubUI.toast(`已启动房间 ${liveId} 监控`, 'success');
                     await this.refreshDashboard();
                 } else {
@@ -448,12 +496,11 @@ const app = new Vue({
 
             this.setRoomBusy(liveId, true);
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/stop`, {
+                const { ok, data } = await window.HubUI.requestJson(`/api/rooms/${encodeURIComponent(liveId)}/stop`, {
                     method: 'POST'
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     window.HubUI.toast(`已停止房间 ${liveId} 监控`, 'info');
                     await this.refreshDashboard();
                 } else {
@@ -480,12 +527,11 @@ const app = new Vue({
 
             this.setRoomBusy(liveId, true);
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}`, {
+                const { ok, data } = await window.HubUI.requestJson(`/api/rooms/${encodeURIComponent(liveId)}`, {
                     method: 'DELETE'
                 });
-                const data = await response.json();
 
-                if (response.ok) {
+                if (ok) {
                     window.HubUI.toast(`已归档「${label}」`, 'success');
                     await this.refreshDashboard();
                 } else {
@@ -503,7 +549,7 @@ const app = new Vue({
         getMonitorBadgeClass(roomOrStatus) {
             const status = typeof roomOrStatus === 'string'
                 ? roomOrStatus
-                : (roomOrStatus && roomOrStatus.status);
+                : roomOrStatus?.status;
             switch (status) {
                 case 'monitoring': return 'is-live';
                 case 'offline':
@@ -515,7 +561,7 @@ const app = new Vue({
         getMonitorStatusText(roomOrStatus) {
             const status = typeof roomOrStatus === 'string'
                 ? roomOrStatus
-                : (roomOrStatus && roomOrStatus.status);
+                : roomOrStatus?.status;
             switch (status) {
                 case 'monitoring': return '运行中';
                 case 'offline':
@@ -526,7 +572,7 @@ const app = new Vue({
             }
         },
         getRoomStatusNote(room) {
-            if (!room || !room.error_message) {
+            if (!room?.error_message) {
                 return '';
             }
             if (['offline', 'waiting', 'error'].includes(room.status)) {

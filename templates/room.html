@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,228 +11,11 @@
     <script src="/static/vendor/socket.io.min.js?v={{ asset_v('vendor/socket.io.min.js') }}"></script>
     <link href="/static/vendor/tailwind.min.css?v={{ asset_v('vendor/tailwind.min.css') }}" rel="stylesheet">
     <link href="/static/css/app-ui.css?v={{ asset_v('css/app-ui.css') }}" rel="stylesheet">
-    <style>
-        .messages-container {
-            height: 430px;
-            overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: #cbd5e1 #f1f5f9;
-        }
-        @media (min-width: 768px) {
-            .messages-container {
-                height: 520px;
-            }
-        }
-        .contributor-container {
-            height: 430px;
-            overflow-y: auto;
-        }
-        @media (min-width: 768px) {
-            .contributor-container {
-                height: 520px;
-            }
-        }
-        .message {
-            padding: 8px 12px;
-            margin: 5px 0;
-            border-radius: 8px;
-            transition: background-color 0.14s ease;
-            font-size: 13.5px;
-            line-height: 1.5;
-        }
-        .chat-message {
-            background: #f9fafb;
-            border-left: 2px solid #d1d5db;
-        }
-        .gift-message {
-            background: #fff1f2;
-            border-left: 2px solid #e11d48;
-        }
-        .gift-user-message {
-            background: #fffbeb;
-            border-left: 2px solid #d97706;
-        }
-        .user-highlight {
-            font-weight: 600;
-            color: #111827;
-            cursor: pointer;
-        }
-        .user-highlight:hover {
-            color: #2563eb;
-            text-decoration: underline;
-        }
-        .user-level-icon {
-            height: 18px;
-            vertical-align: middle;
-            margin-right: 4px;
-            display: inline-block;
-        }
-        .fans-club-icon {
-            height: 18px;
-            vertical-align: middle;
-            margin-right: 3px;
-            display: inline-block;
-        }
-        .tab-button {
-            position: relative;
-            padding: 10px 16px;
-            font-size: 13.5px;
-            font-weight: 600;
-            transition: all 0.15s ease;
-            border-bottom: 2px solid transparent;
-        }
-        .tab-button.active {
-            color: #111827;
-            border-bottom-color: #111827;
-            background: #ffffff;
-        }
-        .tab-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 20px;
-            height: 18px;
-            padding: 0 6px;
-            font-size: 11px;
-            font-weight: 600;
-            font-variant-numeric: tabular-nums;
-            border-radius: 999px;
-            margin-left: 5px;
-            background: #e5e7eb;
-            color: #4b5563;
-        }
-        .tab-button.active .tab-badge {
-            background: #18181b;
-            color: #ffffff;
-        }
-        .rank-badge {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 11.5px;
-            font-variant-numeric: tabular-nums;
-        }
-        .rank-1 { background: #18181b; color: #fff; }
-        .rank-2 { background: #4b5563; color: #fff; }
-        .rank-3 { background: #9ca3af; color: #fff; }
-        .rank-other { background: #f3f4f6; color: #6b7280; }
-        .user-modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(17, 24, 39, 0.45);
-            backdrop-filter: blur(2px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            padding: 16px;
-        }
-        .user-modal-content {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            width: 100%;
-            max-width: 640px;
-            max-height: 86vh;
-            overflow-y: auto;
-            box-shadow: var(--hub-shadow-lg);
-        }
-        .user-header {
-            background: #f9fafb;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 20px 22px;
-            border-radius: 12px 12px 0 0;
-            color: #111827;
-        }
-        .user-avatar-large {
-            width: 56px;
-            height: 56px;
-            border-radius: 999px;
-            border: 1px solid #e5e7eb;
-            background: #f3f4f6;
-            object-fit: cover;
-        }
-        .user-avatar-fallback {
-            background: #18181b;
-            color: #ffffff;
-        }
-        .user-tab-button {
-            padding: 10px 16px;
-            font-size: 13.5px;
-            font-weight: 600;
-            border-bottom: 2px solid transparent;
-            color: #6b7280;
-        }
-        .user-tab-button.active {
-            color: #111827;
-            border-bottom-color: #111827;
-            background: #ffffff;
-        }
-        .user-stat-chips {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 8px;
-            margin-top: 14px;
-        }
-        @media (max-width: 480px) {
-            .user-stat-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        .user-stat-chip {
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 8px 10px;
-            text-align: center;
-            color: #111827;
-            position: relative;
-        }
-        .user-stat-chip-label {
-            font-size: 11px;
-            color: #6b7280;
-        }
-        .user-stat-chip-value {
-            font-size: 17px;
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-            margin-top: 2px;
-        }
-        .user-messages-body {
-            height: 380px;
-            display: flex;
-            flex-direction: column;
-        }
-        .user-messages-list {
-            flex: 1;
-            overflow-y: auto;
-        }
-        .user-messages-placeholder {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .user-message-card {
-            padding: 12px 14px;
-            border-radius: 10px;
-        }
-        .user-chat-card {
-            background: #f8fafc;
-            border-left: 3px solid #3b82f6;
-        }
-        .user-gift-card {
-            background: #fff7ed;
-            border-left: 3px solid #ea580c;
-        }
-    </style>
 </head>
 <body class="min-h-screen text-gray-900">
     <div id="app" v-cloak>
         <!-- 全站统一顶部导航栏 -->
-        <nav class="hub-navbar">
+        <nav class="hub-navbar" aria-label="主导航">
             <div class="hub-navbar-inner">
                 <a href="/" class="hub-brand">
                     <span class="hub-brand-mark" aria-hidden="true">
@@ -267,7 +50,7 @@
                             <h1 class="text-lg sm:text-xl font-bold text-gray-900 truncate" v-if="room && room.anchor_name" v-text="room.anchor_name"></h1>
                             <h1 class="text-lg sm:text-xl font-bold text-gray-900 truncate" v-else v-text="live_id"></h1>
                             <span v-if="room" :class="['hub-badge', getBadgeClass(isArchived ? 'archived' : room.status)]">
-                                <span class="hub-badge-dot"></span>
+                                <span class="hub-badge-dot" aria-hidden="true"></span>
                                 <span v-text="getStatusText(isArchived ? 'archived' : room.status)"></span>
                             </span>
                             <span v-if="currentSession && currentSession.status === 'live'" class="hub-badge is-live">直播中</span>
@@ -287,6 +70,7 @@
 
                     <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                         <button
+                            type="button"
                             v-if="canStartMonitoring"
                             @click="startMonitoring"
                             :disabled="actionLoading"
@@ -294,6 +78,7 @@
                             启动监控
                         </button>
                         <button
+                            type="button"
                             v-if="isArchived"
                             @click="restoreRoom"
                             :disabled="actionLoading"
@@ -301,6 +86,7 @@
                             恢复到控制台
                         </button>
                         <button
+                            type="button"
                             v-if="isMonitorActive"
                             @click="stopMonitoring"
                             :disabled="actionLoading"
@@ -421,18 +207,24 @@
                 <div class="lg:col-span-2 hub-card overflow-hidden">
                     <div class="flex border-b border-gray-100 bg-gray-50">
                         <button
+                            type="button"
+                            :aria-pressed="activeTab === 'all'"
                             @click="setTab('all')"
                             :class="['tab-button flex-1 tab-all', activeTab === 'all' ? 'active' : 'text-gray-500']">
                             全部
                             <span class="tab-badge" v-text="messages.length"></span>
                         </button>
                         <button
+                            type="button"
+                            :aria-pressed="activeTab === 'chat'"
                             @click="setTab('chat')"
                             :class="['tab-button flex-1 tab-chat', activeTab === 'chat' ? 'active' : 'text-gray-500']">
                             弹幕
                             <span class="tab-badge" v-text="chatMessageCount"></span>
                         </button>
                         <button
+                            type="button"
+                            :aria-pressed="activeTab === 'gift'"
                             @click="setTab('gift')"
                             :class="['tab-button flex-1 tab-gift', activeTab === 'gift' ? 'active' : 'text-gray-500']">
                             礼物
@@ -451,7 +243,7 @@
                         </a>
                     </div>
 
-                    <div class="messages-container p-3 sm:p-4 bg-white relative">
+                    <div ref="messagesContainer" class="messages-container p-3 sm:p-4 bg-white relative" tabindex="0" aria-label="实时消息列表">
                         <div v-if="filteredMessages.length === 0" class="text-center text-gray-400 py-16">
                             <p class="text-sm font-medium"
                                v-text="recentMessagesLoading ? '正在加载消息记录...' : (isOfflinePreview ? '上一场暂无弹幕或礼物记录' : '暂无新消息推送')"></p>
@@ -486,6 +278,7 @@
                         </div>
 
                         <button
+                            type="button"
                             v-if="unreadCount > 0"
                             @click="scrollToBottom"
                             class="sticky bottom-3 left-1/2 transform -translate-x-1/2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-full shadow-lg text-xs font-semibold flex items-center gap-1.5 mx-auto">
@@ -499,6 +292,8 @@
                     <div class="px-4 py-3 border-b border-gray-100 bg-gray-50 space-y-2.5">
                         <div class="flex gap-1">
                             <button
+                                type="button"
+                                :aria-pressed="activeRankTab === 'gift'"
                                 @click="setRankTab('gift')"
                                 :class="['flex-1 py-2 text-sm font-semibold transition-colors border-b-2',
                                     activeRankTab === 'gift'
@@ -511,6 +306,8 @@
                                       v-text="displayedContributors.length"></span>
                             </button>
                             <button
+                                type="button"
+                                :aria-pressed="activeRankTab === 'like'"
                                 @click="setRankTab('like')"
                                 :class="['flex-1 py-2 text-sm font-semibold transition-colors border-b-2',
                                     activeRankTab === 'like'
@@ -528,58 +325,62 @@
                             当前未开播 · 展示上一场贡献榜与本房间累计点赞榜
                         </div>
 
-                        <form @submit.prevent="searchUserByName" class="relative">
-                            <input
-                                v-model="userNameSearch"
-                                data-user-search-input="1"
-                                @focus="userSearchFocused = true"
-                                @blur="onUserSearchBlur"
-                                type="text"
-                                class="w-full min-w-0 pl-9 pr-16 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-900 bg-white"
-                                placeholder="搜昵称 / ID / 抖音号（空格查空白名）">
-                            <svg class="absolute left-3 top-2 w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
-                            </svg>
-                            <button
-                                type="submit"
-                                :disabled="userSearchLoading"
-                                class="absolute right-1 top-1 px-2.5 py-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-white rounded text-xs font-medium">
-                                <span v-text="userSearchLoading ? '搜索中' : '搜索'"></span>
-                            </button>
+                        <search>
+                            <form @submit.prevent="searchUserByName" class="relative hub-search-form">
+                                <input
+                                    v-model="userNameSearch"
+                                    data-user-search-input="1"
+                                    aria-label="搜昵称 / ID / 抖音号"
+                                    @focus="userSearchFocused = true"
+                                    @blur="onUserSearchBlur"
+                                    type="text"
+                                    class="w-full min-w-0 pl-9 pr-16 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-900 bg-white"
+                                    placeholder="搜昵称 / ID / 抖音号（空格查空白名）">
+                                <svg class="absolute left-3 top-2 w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M8 4a4 4 0 102.48 7.139l3.69 3.69a1 1 0 101.415-1.414l-3.69-3.69A4 4 0 008 4zM6 8a2 2 0 114 0 2 2 0 01-4 0z"/>
+                                </svg>
+                                <button
+                                    type="submit"
+                                    :disabled="userSearchLoading"
+                                    class="absolute right-1 top-1 px-2.5 py-1 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-white rounded text-xs font-medium">
+                                    <span v-text="userSearchLoading ? '搜索中' : '搜索'"></span>
+                                </button>
 
-                            <div v-if="userSearchFocused && (userSearchLoading || userSearchResults.length > 0 || userSearchHasSearched || userSearchError)"
-                                 class="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden z-30">
-                                <div v-if="userSearchLoading" class="px-3 py-4 text-center text-sm text-gray-400">搜索中...</div>
-                                <div v-else-if="userSearchResults.length > 0" class="max-h-80 overflow-y-auto">
-                                    <button
-                                        v-for="user in userSearchResults"
-                                        :key="user.live_id + '_' + user.user_id"
-                                        @mousedown.prevent="selectSearchedUser(user)"
-                                        class="w-full px-3 py-2 flex items-center justify-between hover:bg-blue-50 border-b border-gray-100 last:border-b-0 text-left">
-                                        <div class="flex items-center min-w-0">
-                                            <img v-if="user.user_avatar" :src="user.user_avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full mr-2 object-cover">
-                                            <div v-else class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold mr-2"
-                                                 v-text="formatAvatarInitial(user.nickname, user.user_id)"></div>
-                                            <div class="min-w-0">
-                                                <div class="text-sm font-medium text-gray-800 truncate" v-text="formatDisplayName(user.nickname, user.user_id)"></div>
-                                                <div class="text-xs text-gray-400 truncate"
-                                                     v-text="(user.display_id ? '抖音号: ' + user.display_id + ' · ' : '') + 'ID: ' + user.user_id"></div>
+                                <div v-if="userSearchFocused && (userSearchLoading || userSearchResults.length > 0 || userSearchHasSearched || userSearchError)"
+                                     class="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden z-30">
+                                    <div v-if="userSearchLoading" class="px-3 py-4 text-center text-sm text-gray-400">搜索中...</div>
+                                    <div v-else-if="userSearchResults.length > 0" class="max-h-80 overflow-y-auto">
+                                        <button
+                                            v-for="user in userSearchResults"
+                                            :key="user.live_id + '_' + user.user_id"
+                                            type="button"
+                                            @mousedown.prevent="selectSearchedUser(user)"
+                                            class="w-full px-3 py-2 flex items-center justify-between hover:bg-blue-50 border-b border-gray-100 last:border-b-0 text-left">
+                                            <div class="flex items-center min-w-0">
+                                                <img v-if="user.user_avatar" :src="user.user_avatar" referrerpolicy="no-referrer" decoding="async" loading="lazy" width="32" height="32" alt="" class="w-8 h-8 rounded-full mr-2 object-cover">
+                                                <div v-else class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold mr-2"
+                                                     v-text="formatAvatarInitial(user.nickname, user.user_id)"></div>
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-medium text-gray-800 truncate" v-text="formatDisplayName(user.nickname, user.user_id)"></div>
+                                                    <div class="text-xs text-gray-400 truncate"
+                                                         v-text="(user.display_id ? '抖音号: ' + user.display_id + ' · ' : '') + 'ID: ' + user.user_id"></div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div class="text-right text-xs text-gray-500 flex-shrink-0 ml-3">
-                                            <div v-text="'消息 ' + formatNumber(user.total_messages || 0)"></div>
-                                            <div class="text-yellow-600" v-text="formatNumber(user.total_value || 0) + ' 钻石'"></div>
-                                        </div>
-                                    </button>
+                                            <div class="text-right text-xs text-gray-500 flex-shrink-0 ml-3">
+                                                <div v-text="'消息 ' + formatNumber(user.total_messages || 0)"></div>
+                                                <div class="text-yellow-600" v-text="formatNumber(user.total_value || 0) + ' 钻石'"></div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div v-else class="px-3 py-4 text-center text-sm" :class="userSearchError ? 'text-red-500' : 'text-gray-400'">
+                                        <span v-text="userSearchError || '未找到匹配用户'"></span>
+                                    </div>
+                                    <div v-if="userSearchResults.length > 0" class="px-3 py-1.5 bg-gray-50 text-xs text-gray-400">
+                                        点击用户查看本场消息记录
+                                    </div>
                                 </div>
-                                <div v-else class="px-3 py-4 text-center text-sm" :class="userSearchError ? 'text-red-500' : 'text-gray-400'">
-                                    <span v-text="userSearchError || '未找到匹配用户'"></span>
-                                </div>
-                                <div v-if="userSearchResults.length > 0" class="px-3 py-1.5 bg-gray-50 text-xs text-gray-400">
-                                    点击用户查看本场消息记录
-                                </div>
-                            </div>
-                        </form>
+                            </form>
+                        </search>
                     </div>
 
                     <div class="contributor-container">
@@ -596,6 +397,10 @@
                                         v-if="contributor.avatar"
                                         :src="contributor.avatar"
                                         referrerpolicy="no-referrer"
+                                        loading="lazy"
+                                        decoding="async"
+                                        width="36"
+                                        height="36"
                                         class="w-9 h-9 rounded-full mr-2.5 flex-shrink-0 object-cover"
                                         alt="用户头像">
                                     <div
@@ -610,11 +415,13 @@
                                             <img v-if="contributor.user_level"
                                                  loading="lazy" decoding="async"
                                                  :src="'/level_img/level_' + contributor.user_level + '.png'"
-                                                 style="height: 16px; object-fit: contain; flex-shrink: 0;">
+                                                 alt=""
+                                                 class="hub-badge-icon hub-badge-icon-sm">
                                             <img v-if="contributor.fans_club_level"
                                                  loading="lazy" decoding="async"
                                                  :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'"
-                                                 style="height: 16px; object-fit: contain; flex-shrink: 0;">
+                                                 alt=""
+                                                 class="hub-badge-icon hub-badge-icon-sm">
                                         </div>
                                         <div class="text-xs font-semibold text-yellow-700 hub-num mt-0.5" v-text="formatNumber(contributor.score) + ' 钻石'"></div>
                                     </div>
@@ -635,6 +442,10 @@
                                         v-if="liker.avatar"
                                         :src="liker.avatar"
                                         referrerpolicy="no-referrer"
+                                        loading="lazy"
+                                        decoding="async"
+                                        width="36"
+                                        height="36"
                                         class="w-9 h-9 rounded-full mr-2.5 flex-shrink-0 object-cover"
                                         alt="用户头像">
                                     <div
@@ -649,11 +460,13 @@
                                             <img v-if="liker.user_level"
                                                  loading="lazy" decoding="async"
                                                  :src="'/level_img/level_' + liker.user_level + '.png'"
-                                                 style="height: 16px; object-fit: contain; flex-shrink: 0;">
+                                                 alt=""
+                                                 class="hub-badge-icon hub-badge-icon-sm">
                                             <img v-if="liker.fans_club_level"
                                                  loading="lazy" decoding="async"
                                                  :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'"
-                                                 style="height: 16px; object-fit: contain; flex-shrink: 0;">
+                                                 alt=""
+                                                 class="hub-badge-icon hub-badge-icon-sm">
                                         </div>
                                         <div class="text-xs font-medium text-gray-500 hub-num mt-0.5" v-text="formatNumber(liker.like_count) + ' 次点赞'"></div>
                                     </div>
@@ -665,9 +478,14 @@
             </div>
         </main>
 
-        <!-- 用户消息模态框 -->
-        <div v-if="showUserMessagesModal" v-cloak class="user-modal-overlay" @click.self="closeUserMessagesModal">
-            <div class="user-modal-content">
+        <!-- 用户消息模态框 (原生顶层 <dialog>) -->
+        <dialog
+            ref="userMessagesModal"
+            class="hub-modal user-modal-overlay hub-modal-lg"
+            closedby="any"
+            aria-labelledby="room-user-modal-title"
+            @close="onDialogClose('user')">
+            <div v-if="showUserMessagesModal" class="user-modal-content">
                 <div class="user-header">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center">
@@ -675,20 +493,26 @@
                                 v-if="userMessagesData.user.avatar"
                                 :src="userMessagesData.user.avatar"
                                 referrerpolicy="no-referrer"
+                                decoding="async"
+                                width="56"
+                                height="56"
+                                alt=""
                                 class="user-avatar-large mr-4">
                             <div v-else class="user-avatar-large user-avatar-fallback flex items-center justify-center text-xl font-bold mr-4"
                                  v-text="formatAvatarInitial(userMessagesData.user.nickname, userMessagesData.user.user_id)"></div>
                             <div>
-                                <h2 class="text-lg font-bold text-gray-900 flex items-center">
+                                <h2 id="room-user-modal-title" class="text-lg font-bold text-gray-900 flex items-center">
                                     <span v-text="formatDisplayName(userMessagesData.user.nickname, userMessagesData.user.user_id)"></span>
                                     <img v-if="userMessagesData.user.level"
                                          loading="lazy" decoding="async"
                                          :src="'/level_img/level_' + userMessagesData.user.level + '.png'"
-                                         style="height: 18px; margin-left: 8px; object-fit: contain;">
+                                         alt=""
+                                         class="hub-badge-icon hub-badge-gap-left-lg">
                                     <img v-if="userMessagesData.user.fans_club_level"
                                          loading="lazy" decoding="async"
                                          :src="'/fansclub_img/fansclub_' + userMessagesData.user.fans_club_level + '.png'"
-                                         style="height: 18px; margin-left: 4px; object-fit: contain;">
+                                         alt=""
+                                         class="hub-badge-icon hub-badge-gap-left">
                                 </h2>
                                 <div v-if="userMessagesData.user.display_id || userMessagesData.user.user_id"
                                      class="mt-0.5 text-xs text-gray-400 font-mono truncate">
@@ -703,7 +527,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button @click="closeUserMessagesModal" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+                        <button type="button" @click="closeUserMessagesModal" aria-label="关闭用户消息弹窗" autofocus class="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
                     </div>
 
                     <div class="user-stat-chips">
@@ -729,18 +553,21 @@
                 <div class="border-b border-gray-100">
                     <div class="flex">
                         <button
+                            type="button"
                             @click="switchUserMessagesTab('all')"
                             :class="['user-tab-button flex-1', userMessagesTab === 'all' ? 'active' : '']">
                             全部消息
                             <span class="ml-1.5 px-2 py-0.5 bg-gray-100 rounded-full text-xs" v-text="userMessagesData.stats.total_messages"></span>
                         </button>
                         <button
+                            type="button"
                             @click="switchUserMessagesTab('chat')"
                             :class="['user-tab-button flex-1', userMessagesTab === 'chat' ? 'active' : '']">
                             弹幕
                             <span class="ml-1.5 px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full text-xs" v-text="userMessagesData.stats.chat_count"></span>
                         </button>
                         <button
+                            type="button"
                             @click="switchUserMessagesTab('gift')"
                             :class="['user-tab-button flex-1', userMessagesTab === 'gift' ? 'active' : '']">
                             礼物
@@ -762,9 +589,11 @@
                             <div class="flex items-center justify-between mb-1">
                                 <div class="flex items-center">
                                     <img v-if="msg.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + msg.user_level + '.png'"
-                                         class="h-4 mr-1" style="object-fit: contain;">
+                                         alt=""
+                                         class="hub-badge-icon hub-badge-icon-sm mr-1">
                                     <img v-if="msg.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
-                                         style="height: 16px; object-fit: contain; margin-right: 4px;">
+                                         alt=""
+                                         class="hub-badge-icon hub-badge-icon-sm hub-badge-gap-right">
                                     <span class="font-semibold text-blue-600 text-xs" v-text="formatDisplayName(msg.nickname, msg.user_id)"></span>
                                 </div>
                                 <span class="text-gray-400 text-xs" v-text="formatUserMessageTime(msg.created_at)"></span>
@@ -801,12 +630,14 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <button
+                            type="button"
                             @click="userMessagesGoToPage(userMessagesData.pagination.page - 1)"
                             :disabled="userMessagesData.pagination.page <= 1"
                             class="px-3 py-1 rounded text-xs bg-white border border-gray-200 disabled:opacity-50">
                             上一页
                         </button>
                         <button
+                            type="button"
                             @click="userMessagesGoToPage(userMessagesData.pagination.page + 1)"
                             :disabled="userMessagesData.pagination.page >= userMessagesData.pagination.total_pages"
                             class="px-3 py-1 rounded text-xs bg-white border border-gray-200 disabled:opacity-50">
@@ -815,17 +646,22 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </dialog>
 
         <!-- 历史直播场次弹窗（随时可用，并支持跳统计页看当场详情） -->
-        <div v-if="showSessionsModal" v-cloak class="user-modal-overlay" @click.self="closeSessionsModal">
-            <div class="user-modal-content" style="max-width: 720px;">
+        <dialog
+            ref="sessionsModal"
+            class="hub-modal user-modal-overlay hub-modal-xl"
+            closedby="any"
+            aria-labelledby="room-sessions-modal-title"
+            @close="onDialogClose('sessions')">
+            <div v-if="showSessionsModal" class="user-modal-content">
                 <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                     <div>
-                        <h2 class="text-base font-bold text-gray-900">历史直播场次</h2>
+                        <h2 id="room-sessions-modal-title" class="text-base font-bold text-gray-900">历史直播场次</h2>
                         <p class="text-xs text-gray-500 mt-0.5">点击任意场次的“查看明细”可直达弹幕、礼物与贡献榜分析</p>
                     </div>
-                    <button @click="closeSessionsModal" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    <button type="button" @click="closeSessionsModal" aria-label="关闭历史场次弹窗" autofocus class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                 </div>
                 <div class="p-4 user-messages-body">
                     <div v-if="sessions.length === 0" class="user-messages-placeholder">
@@ -869,7 +705,7 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </dialog>
     </div>
 
     <script src="/static/js/emoji-map.js?v={{ asset_v('js/emoji-map.js') }}"></script>

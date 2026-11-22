@@ -92,6 +92,22 @@ const app = new Vue({
         }
     },
     watch: {
+        showSessionModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.sessionModal, val, {
+                    getClosedBy: () => 'any',
+                    onDismiss: () => this.closeSessionModal()
+                });
+            });
+        },
+        showUserMessagesModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.userMessagesModal, val, {
+                    getClosedBy: () => 'any',
+                    onDismiss: () => this.closeUserMessagesModal()
+                });
+            });
+        },
         userNameSearch(value) {
             if (this.userSearchDebounceTimer) {
                 clearTimeout(this.userSearchDebounceTimer);
@@ -102,6 +118,8 @@ const app = new Vue({
 
             if (!raw) {
                 this.userSearchRequestSeq++;
+                this._userSearchAbortController?.abort();
+                this._userSearchAbortController = null;
                 this.userSearchResults = [];
                 this.userSearchHasSearched = false;
                 this.userSearchLoading = false;
@@ -117,6 +135,12 @@ const app = new Vue({
         }
     },
     async mounted() {
+        this._loadDataAbortController = null;
+        this._userSearchAbortController = null;
+        this._userMessagesAbortController = null;
+        this._trendResizeObserver = null;
+        this._observedChartEl = null;
+
         this.todayDate = this.formatDateForInput(new Date());
         const urlParams = new URLSearchParams(window.location.search || '');
         const paramLiveId = (urlParams.get('live_id') || '').trim();
@@ -131,15 +155,13 @@ const app = new Vue({
         }
         this.initPeriodDefaults();
 
-        this._trendChartResizeHandler = () => this.resizeTrendChart();
-        window.addEventListener('resize', this._trendChartResizeHandler);
+        if (typeof ResizeObserver === 'undefined') {
+            this._trendChartResizeHandler = () => this.resizeTrendChart();
+            window.addEventListener('resize', this._trendChartResizeHandler);
+        }
+
         this._keydownHandler = (event) => {
-            if (event.key !== 'Escape') return;
-            if (this.showUserMessagesModal) {
-                this.closeUserMessagesModal();
-            } else if (this.showSessionModal) {
-                this.closeSessionModal();
-            } else if (this.userSearchFocused) {
+            if (event.key === 'Escape' && this.userSearchFocused && !this.showUserMessagesModal && !this.showSessionModal) {
                 this.userSearchFocused = false;
             }
         };
@@ -170,6 +192,12 @@ const app = new Vue({
             cancelAnimationFrame(this._resizeRafId);
             this._resizeRafId = null;
         }
+        this._loadDataAbortController?.abort();
+        this._userSearchAbortController?.abort();
+        this._userMessagesAbortController?.abort();
+        this._trendResizeObserver?.disconnect();
+        this._trendResizeObserver = null;
+        this._observedChartEl = null;
         if (this._trendChartResizeHandler) {
             window.removeEventListener('resize', this._trendChartResizeHandler);
         }
@@ -182,35 +210,51 @@ const app = new Vue({
         }
     },
     methods: {
+        onDialogClose(kind) {
+            if (kind === 'user' && this.showUserMessagesModal) {
+                this.closeUserMessagesModal();
+            } else if (kind === 'session' && this.showSessionModal) {
+                this.closeSessionModal();
+            }
+        },
+        syncTrendChartObserver() {
+            const target = this.$refs.trendChart;
+            if (!target || typeof ResizeObserver === 'undefined') return;
+            if (this._observedChartEl === target && this._trendResizeObserver) return;
+            this._trendResizeObserver?.disconnect();
+            this._trendResizeObserver = new ResizeObserver(() => this.resizeTrendChart());
+            this._trendResizeObserver.observe(target);
+            this._observedChartEl = target;
+        },
         annotateRelatedRooms(rooms) {
             const counts = {};
-            rooms.forEach(room => {
+            for (const room of rooms) {
                 if (room.anchor_id) {
                     counts[room.anchor_id] = (counts[room.anchor_id] || 0) + 1;
                 }
-            });
-            return rooms.map(room => Object.assign({}, room, {
-                has_related: !!(room.anchor_id && counts[room.anchor_id] > 1)
+            }
+            return rooms.map((room) => ({
+                ...room,
+                has_related: Boolean(room.anchor_id && counts[room.anchor_id] > 1)
             }));
         },
         mergedRelatedRooms() {
-            const ids = (this.stats && this.stats.related_live_ids) || [];
+            const ids = this.stats?.related_live_ids || [];
             if (!this.selectedRoomId || ids.length < 2) {
                 return [];
             }
-            return ids.map(id => {
-                const room = this.rooms.find(item => item.live_id === id) || {};
+            return ids.map((id) => {
+                const room = this.rooms.find((item) => item.live_id === id) || {};
                 return {
                     live_id: id,
                     anchor_name: room.anchor_name,
-                    is_archived: !!room.is_archived
+                    is_archived: Boolean(room.is_archived)
                 };
             });
         },
         async loadRooms() {
             try {
-                const response = await fetch('/api/rooms?include_archived=1');
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson('/api/rooms?include_archived=1');
                 if (data.rooms) {
                     this.rooms = this.annotateRelatedRooms(data.rooms);
                 }
@@ -233,8 +277,7 @@ const app = new Vue({
                     params.set('live_id', this.selectedRoomId);
                 }
                 params.set('limit', '100');
-                const resp = await fetch('/api/rooms/top-likers?' + params.toString());
-                const data = await resp.json();
+                const { data } = await window.HubUI.requestJson('/api/rooms/top-likers?' + params.toString());
                 this.likers = data.likers || [];
             } catch (e) {
                 console.error('加载累积点赞榜失败:', e);
@@ -254,7 +297,7 @@ const app = new Vue({
             this.chartMetric = metricKey;
         },
         currentChartMetricConfig() {
-            return this.chartMetrics.find(metric => metric.key === this.chartMetric) || this.chartMetrics[0];
+            return this.chartMetrics.find((metric) => metric.key === this.chartMetric) || this.chartMetrics[0];
         },
         trendRows() {
             return Array.isArray(this.stats.trend) ? this.stats.trend : [];
@@ -264,12 +307,12 @@ const app = new Vue({
             return Number(row[metric.field] || 0);
         },
         chartHasSignal() {
-            return this.trendRows().some(row => this.trendValue(row) > 0);
+            return this.trendRows().some((row) => this.trendValue(row) > 0);
         },
         normalizeChartMetric() {
             if (this.chartHasSignal()) return;
-            const metricWithSignal = this.chartMetrics.find(metric =>
-                this.trendRows().some(row => Number(row[metric.field] || 0) > 0)
+            const metricWithSignal = this.chartMetrics.find((metric) =>
+                this.trendRows().some((row) => Number(row[metric.field] || 0) > 0)
             );
             if (metricWithSignal) {
                 this.chartMetric = metricWithSignal.key;
@@ -334,6 +377,7 @@ const app = new Vue({
                     renderer: 'canvas'
                 });
             }
+            this.syncTrendChartObserver();
             this._trendChart.setOption(this.buildTrendChartOption(), true);
             this.resizeTrendChart();
         },
@@ -343,17 +387,15 @@ const app = new Vue({
             }
             this._resizeRafId = requestAnimationFrame(() => {
                 this._resizeRafId = null;
-                if (this._trendChart) {
-                    this._trendChart.resize();
-                }
+                this._trendChart?.resize();
             });
         },
         buildTrendChartOption() {
             const rows = this.trendRows();
             const metric = this.currentChartMetricConfig();
-            const values = rows.map(row => this.trendValue(row));
+            const values = rows.map((row) => this.trendValue(row));
             const hasRows = rows.length > 0;
-            const hasSignal = values.some(value => value > 0);
+            const hasSignal = values.some((value) => value > 0);
             const color = hasSignal ? metric.stroke : '#94a3b8';
             const seriesData = hasRows ? values : [];
             const graphicText = !hasRows
@@ -389,7 +431,7 @@ const app = new Vue({
                         }
                     },
                     formatter: (params) => {
-                        const point = params && params[0];
+                        const point = params?.[0];
                         if (!point) return '';
                         return `${point.axisValue}<br>${metric.label}: ${this.formatChartValue(point.value)}`;
                     }
@@ -397,7 +439,7 @@ const app = new Vue({
                 xAxis: {
                     type: 'category',
                     boundaryGap: true,
-                    data: rows.map(row => row.date),
+                    data: rows.map((row) => row.date),
                     axisTick: { show: false },
                     axisLine: { lineStyle: { color: '#e5e7eb' } },
                     axisLabel: {
@@ -413,7 +455,7 @@ const app = new Vue({
                     axisLabel: {
                         color: '#94a3b8',
                         fontSize: 11,
-                        formatter: value => this.formatNumber(value)
+                        formatter: (value) => this.formatNumber(value)
                     },
                     splitLine: {
                         lineStyle: {
@@ -462,8 +504,7 @@ const app = new Vue({
         async loadDateRange() {
             // 加载所有房间的日期范围
             try {
-                const response = await fetch('/api/rooms/date-range');
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson('/api/rooms/date-range');
                 if (data.min_date) {
                     this.minDate = data.min_date;
                 }
@@ -603,6 +644,11 @@ const app = new Vue({
                 return;
             }
 
+            this._loadDataAbortController?.abort();
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this._loadDataAbortController = controller;
+            const fetchOpts = controller ? { signal: controller.signal } : {};
+
             const requestSeq = ++this.loadRequestSeq;
             this.loading = true;
             const params = new URLSearchParams({
@@ -619,10 +665,10 @@ const app = new Vue({
                     ? `/api/rooms/${encodeURIComponent(this.selectedRoomId)}/sessions?${params}`
                     : null;
 
-                const statsPromise = fetch(statsUrl).then(r => r.json());
-                const contributorsPromise = this.loadContributors(1, { requestSeq });
+                const statsPromise = fetch(statsUrl, fetchOpts).then((r) => r.json());
+                const contributorsPromise = this.loadContributors(1, { requestSeq, signal: controller?.signal });
                 const sessionsPromise = sessionsUrl
-                    ? fetch(sessionsUrl).then(r => r.json())
+                    ? fetch(sessionsUrl, fetchOpts).then((r) => r.json())
                     : Promise.resolve(null);
 
                 const [statsData, , sessionsData] = await Promise.all([
@@ -633,13 +679,13 @@ const app = new Vue({
                 if (requestSeq !== this.loadRequestSeq) {
                     return;
                 }
-                if (statsData && statsData.stats) {
+                if (statsData?.stats) {
                     this.stats = statsData.stats;
                     this.normalizeChartMetric();
                 }
 
                 if (sessionsUrl) {
-                    if (sessionsData && sessionsData.sessions) {
+                    if (sessionsData?.sessions) {
                         this.sessions = sessionsData.sessions;
                     }
                 } else {
@@ -650,7 +696,7 @@ const app = new Vue({
                 this.hasSearched = true;
                 this.$nextTick(() => this.renderTrendChart());
             } catch (error) {
-                if (requestSeq === this.loadRequestSeq) {
+                if (error?.name !== 'AbortError' && requestSeq === this.loadRequestSeq) {
                     console.error('加载数据失败:', error);
                 }
             } finally {
@@ -680,8 +726,10 @@ const app = new Vue({
             }
 
             try {
-                const response = await fetch(`/api/rooms/contributors-by-date?${params}`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/contributors-by-date?${params}`,
+                    options.signal ? { signal: options.signal } : {}
+                );
                 if (options.requestSeq && options.requestSeq !== this.loadRequestSeq) {
                     return;
                 }
@@ -695,14 +743,16 @@ const app = new Vue({
                 if (data.page_size) {
                     this.contributorPagination.page_size = data.page_size;
                 }
-                if (data.total) {
+                if (data.total !== undefined) {
                     this.contributorPagination.total = data.total;
                 }
                 if (data.total_pages) {
                     this.contributorPagination.total_pages = data.total_pages;
                 }
             } catch (error) {
-                console.error('加载贡献榜失败:', error);
+                if (error?.name !== 'AbortError') {
+                    console.error('加载贡献榜失败:', error);
+                }
             }
         },
         goToContributorPage(page) {
@@ -787,6 +837,10 @@ const app = new Vue({
                 return;
             }
 
+            this._userSearchAbortController?.abort();
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this._userSearchAbortController = controller;
+
             this.userSearchLoading = true;
             const requestSeq = ++this.userSearchRequestSeq;
             try {
@@ -799,9 +853,11 @@ const app = new Vue({
                 const url = this.selectedRoomId
                     ? `/api/rooms/${encodeURIComponent(this.selectedRoomId)}/user-search?${params}`
                     : `/api/rooms/user-search?${params}`;
-                const response = await fetch(url);
-                const data = await response.json();
-                if (!response.ok) {
+                const { ok, data } = await window.HubUI.requestJson(
+                    url,
+                    controller ? { signal: controller.signal } : {}
+                );
+                if (!ok) {
                     throw new Error(data.error || '搜索失败');
                 }
                 if (requestSeq !== this.userSearchRequestSeq) {
@@ -813,7 +869,7 @@ const app = new Vue({
                     this.userSearchError = '未找到匹配用户';
                 }
             } catch (error) {
-                if (requestSeq !== this.userSearchRequestSeq) {
+                if (error?.name === 'AbortError' || requestSeq !== this.userSearchRequestSeq) {
                     return;
                 }
                 console.error('搜索用户失败:', error);
@@ -843,8 +899,9 @@ const app = new Vue({
             // 加载选中房间的日期范围
             if (this.selectedRoomId) {
                 try {
-                    const response = await fetch(`/api/rooms/date-range?live_id=${encodeURIComponent(this.selectedRoomId)}`);
-                    const data = await response.json();
+                    const { data } = await window.HubUI.requestJson(
+                        `/api/rooms/date-range?live_id=${encodeURIComponent(this.selectedRoomId)}`
+                    );
                     if (data.min_date) {
                         this.minDate = data.min_date;
                     }
@@ -871,10 +928,12 @@ const app = new Vue({
             };
 
             try {
-                // 先获取基本信息和消息总数
-                const response = await fetch(`/api/rooms/sessions/${session.id}?type=chat&page=1&limit=50`);
-                const data = await response.json();
+                const [chatRes, contribRes] = await Promise.all([
+                    window.HubUI.requestJson(`/api/rooms/sessions/${session.id}?type=chat&page=1&limit=50`),
+                    window.HubUI.requestJson(`/api/rooms/sessions/${session.id}?type=contributors`)
+                ]);
 
+                const data = chatRes.data;
                 if (data.session) {
                     this.sessionDetail = data.session;
                 }
@@ -888,9 +947,7 @@ const app = new Vue({
                     this.sessionDetailPagination.chats = data.pagination;
                 }
 
-                // 同时获取贡献榜
-                const contribResponse = await fetch(`/api/rooms/sessions/${session.id}?type=contributors`);
-                const contribData = await contribResponse.json();
+                const contribData = contribRes.data;
                 if (contribData.contributors) {
                     this.sessionDetailContributors = contribData.contributors;
                 }
@@ -912,8 +969,9 @@ const app = new Vue({
         async loadSessionDetailData(type) {
             const pagination = type === 'chat' ? this.sessionDetailPagination.chats : this.sessionDetailPagination.gifts;
             try {
-                const response = await fetch(`/api/rooms/sessions/${this.sessionDetail.id}?type=${type}&page=${pagination.page}&limit=${pagination.page_size}`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/sessions/${this.sessionDetail.id}?type=${type}&page=${pagination.page}&limit=${pagination.page_size}`
+                );
 
                 if (type === 'chat' && data.chats) {
                     this.sessionDetailChats = data.chats;
@@ -978,30 +1036,21 @@ const app = new Vue({
             this.sessionDetailCounts = { chat_count: 0, gift_count: 0 };
         },
         formatInteger(value) {
-            const number = Number(value || 0);
-            return Math.round(number).toLocaleString();
+            return window.HubUI.formatInteger(value);
         },
         formatIncome(value) {
             return this.formatInteger(value) + ' 钻石';
         },
         formatNumber(value) {
-            if (!value) return '0';
-            value = Number(value);
-            if (value >= 100000000) {
-                return (value / 100000000).toFixed(1) + '亿';
-            } else if (value >= 10000) {
-                return (value / 10000).toFixed(1) + '万';
-            } else {
-                return value.toLocaleString();
-            }
+            return window.HubUI.formatCompactNumber(value);
         },
         formatAvgIncome() {
             const avg = Number(this.stats.avg_income_per_active_session || 0);
-            return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 钻石';
+            return window.HubUI.formatInteger(avg) + ' 钻石';
         },
         formatAvgLikes() {
             const avg = Number(this.stats.avg_likes_per_active_session || 0);
-            return avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' 次';
+            return window.HubUI.formatInteger(avg) + ' 次';
         },
         formatDurationParts(seconds) {
             if (!seconds || seconds <= 0) {
@@ -1022,15 +1071,7 @@ const app = new Vue({
             };
         },
         formatDateTime(dateStr) {
-            if (!dateStr) return '-';
-            const d = new Date(dateStr);
-            return d.toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            return window.HubUI.formatDateTime(dateStr);
         },
         formatDateForInput(date) {
             const d = new Date(date);
@@ -1040,11 +1081,10 @@ const app = new Vue({
             return `${year}-${month}-${day}`;
         },
         getSessionStatusClass(status) {
-            switch (status) {
-                case 'live': return 'bg-green-100 text-green-800';
-                case 'ended': return 'bg-gray-100 text-gray-800';
-                default: return 'bg-gray-100 text-gray-800';
+            if (status === 'live') {
+                return 'bg-green-100 text-green-800';
             }
+            return 'bg-gray-100 text-gray-800';
         },
         getSessionStatusText(status) {
             switch (status) {
@@ -1094,6 +1134,8 @@ const app = new Vue({
             return await this.loadUserMessages();
         },
         closeUserMessagesModal() {
+            this._userMessagesAbortController?.abort();
+            this._userMessagesAbortController = null;
             this.showUserMessagesModal = false;
             this.userMessagesData = {
                 user: {},
@@ -1124,6 +1166,10 @@ const app = new Vue({
         async loadUserMessages() {
             if (!this.userMessagesQuery.user_id && !this.userMessagesQuery.user_name) return false;
 
+            this._userMessagesAbortController?.abort();
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this._userMessagesAbortController = controller;
+
             this.userMessagesLoading = true;
             try {
                 const params = new URLSearchParams({
@@ -1147,8 +1193,10 @@ const app = new Vue({
                 const url = this.userMessagesQuery.live_id
                     ? `/api/rooms/${encodeURIComponent(this.userMessagesQuery.live_id)}/user-messages?${params}`
                     : `/api/rooms/user-messages?${params}`;
-                const response = await fetch(url);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    url,
+                    controller ? { signal: controller.signal } : {}
+                );
 
                 if (data.user) {
                     this.userMessagesData.user = data.user;
@@ -1162,13 +1210,18 @@ const app = new Vue({
                 if (data.pagination) {
                     this.userMessagesData.pagination = data.pagination;
                 }
-                return (data.stats && data.stats.total_messages > 0) || (data.messages && data.messages.length > 0);
+                return (data.stats?.total_messages > 0) || (data.messages?.length > 0);
             } catch (error) {
+                if (error?.name === 'AbortError') {
+                    return false;
+                }
                 console.error('加载用户消息失败:', error);
                 this.userSearchError = '搜索失败，请稍后重试';
                 return false;
             } finally {
-                this.userMessagesLoading = false;
+                if (this._userMessagesAbortController === controller) {
+                    this.userMessagesLoading = false;
+                }
             }
         },
         async switchUserMessagesTab(tab) {
@@ -1184,19 +1237,10 @@ const app = new Vue({
             await this.loadUserMessages();
         },
         formatUserMessageTime(dateStr) {
-            if (!dateStr) return '';
-            const d = new Date(dateStr);
-            const MM = String(d.getMonth() + 1).padStart(2, '0');
-            const DD = String(d.getDate()).padStart(2, '0');
-            const time = d.toLocaleTimeString('zh-CN', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            return `${MM}-${DD} ${time}`;
+            return window.HubUI.formatShortMessageTime(dateStr);
         },
         formatAgeRange(val) {
-            const map = {0: '-', 1: '<18', 2: '18-23', 3: '24-30', 4: '31-40', 5: '41-50', 6: '>50'};
+            const map = { 0: '-', 1: '<18', 2: '18-23', 3: '24-30', 4: '31-40', 5: '41-50', 6: '>50' };
             return map[val] || '-';
         },
         isBlankNickname(name) {

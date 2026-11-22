@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,91 +9,11 @@
     <script src="/static/vendor/vue.min.js?v={{ asset_v('vendor/vue.min.js') }}"></script>
     <link href="/static/vendor/tailwind.min.css?v={{ asset_v('vendor/tailwind.min.css') }}" rel="stylesheet">
     <link href="/static/css/app-ui.css?v={{ asset_v('css/app-ui.css') }}" rel="stylesheet">
-    <style>
-        .desktop-table {
-            width: 100%;
-            table-layout: fixed;
-        }
-        .desktop-table th {
-            padding: 12px 16px;
-            background: var(--hub-surface-soft);
-            border-bottom: 1px solid var(--hub-border);
-            color: var(--hub-muted);
-            font-size: 12px;
-            font-weight: 700;
-            text-align: left;
-        }
-        .desktop-table td {
-            padding: 14px 16px;
-            border-bottom: 1px solid #f1f5f9;
-            vertical-align: middle;
-        }
-        .desktop-table tr:last-child td {
-            border-bottom: 0;
-        }
-        .table-row:hover {
-            background-color: #f8fafc;
-        }
-        .text-clip {
-            display: block;
-            min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .status-note {
-            display: inline-flex;
-            max-width: 100%;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            line-height: 1.35;
-        }
-        .status-note.is-warning {
-            background: #fffbeb;
-            border: 1px solid #fde68a;
-            color: #92400e;
-        }
-        .status-note.is-danger {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            color: #991b1b;
-        }
-        .status-note-text {
-            display: block;
-            min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .modal-overlay {
-            animation: fadeIn 0.16s ease-out;
-        }
-        .modal-content {
-            max-height: calc(100vh - 36px);
-            overflow-y: auto;
-            animation: slideIn 0.18s ease-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-12px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @media (max-width: 767px) {
-            .status-note-text {
-                white-space: normal;
-            }
-        }
-    </style>
 </head>
 <body class="min-h-screen text-gray-900">
     <div id="app" v-cloak>
         <!-- 全站统一顶部导航栏 -->
-        <nav class="hub-navbar">
+        <nav class="hub-navbar" aria-label="主导航">
             <div class="hub-navbar-inner">
                 <a href="/" class="hub-brand">
                     <span class="hub-brand-mark" aria-hidden="true">
@@ -107,7 +27,7 @@
                     <span>抖音直播记录站</span>
                 </a>
                 <div class="hub-nav-links">
-                    <a href="/" class="hub-nav-link is-active">直播控制台</a>
+                    <a href="/" class="hub-nav-link is-active" aria-current="page">直播控制台</a>
                     <a href="/stats" class="hub-nav-link">数据统计</a>
                     <a href="/history" class="hub-nav-link">归档管理</a>
                 </div>
@@ -124,7 +44,7 @@
             <div v-if="cookieHealth.status === 'dead'" v-cloak
                  class="bg-red-600 text-white text-sm font-medium px-4 py-3 rounded-xl shadow flex items-center justify-between">
                 <span>⚠️ 抖音 Cookie 已失活，礼物数据可能缺失，请及时更新凭证</span>
-                <button @click="openCookieModal" class="underline font-bold ml-4 flex-shrink-0">立即更新</button>
+                <button type="button" @click="openCookieModal" class="underline font-bold ml-4 flex-shrink-0">立即更新</button>
             </div>
 
             <!-- 控制台工具条：运行状态药丸 + 核心配置动作 -->
@@ -136,7 +56,7 @@
                         @click="openProxyModal"
                         :class="['status-pill', proxy.enabled ? 'is-ready' : '']"
                         title="点击配置网络代理">
-                        <span class="status-dot"></span>
+                        <span class="status-dot" aria-hidden="true"></span>
                         <span>代理 <strong v-text="proxy.enabled ? proxy.host + ':' + proxy.port : '未启用'"></strong></span>
                     </button>
                     <button
@@ -144,19 +64,19 @@
                         @click="openCookieModal"
                         :class="['status-pill', cookiePillClass]"
                         title="点击更新或测活抖音 Cookie">
-                        <span class="status-dot"></span>
+                        <span class="status-dot" aria-hidden="true"></span>
                         <span>Cookie <strong v-text="cookieHealthText"></strong></span>
                     </button>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
-                    <button @click="openAddModal" class="hub-btn hub-btn-primary">
+                    <button type="button" @click="openAddModal" class="hub-btn hub-btn-primary">
                         + 添加直播间
                     </button>
-                    <button @click="openProxyModal" class="hub-btn hub-btn-secondary">
+                    <button type="button" @click="openProxyModal" class="hub-btn hub-btn-secondary">
                         代理设置
                     </button>
-                    <button @click="openCookieModal" class="hub-btn hub-btn-secondary">
+                    <button type="button" @click="openCookieModal" class="hub-btn hub-btn-secondary">
                         Cookie设置
                     </button>
                 </div>
@@ -167,6 +87,7 @@
                 <button
                     type="button"
                     @click="setStatusFilter('all')"
+                    :aria-pressed="statusFilter === 'all'"
                     :class="['hub-stat-card is-clickable', statusFilter === 'all' ? 'is-selected' : '']">
                     <div class="text-xs font-medium text-gray-500">主页房间</div>
                     <div class="text-2xl font-bold text-gray-900 hub-num mt-1" v-text="stats.total_rooms"></div>
@@ -174,9 +95,10 @@
                 <button
                     type="button"
                     @click="setStatusFilter('monitoring')"
+                    :aria-pressed="statusFilter === 'monitoring'"
                     :class="['hub-stat-card is-clickable', statusFilter === 'monitoring' ? 'is-selected' : '']">
                     <div class="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-600"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-600" aria-hidden="true"></span>
                         <span>直播监控中</span>
                     </div>
                     <div class="text-2xl font-bold text-gray-900 hub-num mt-1" v-text="stats.monitoring_rooms"></div>
@@ -184,9 +106,10 @@
                 <button
                     type="button"
                     @click="setStatusFilter('waiting')"
+                    :aria-pressed="statusFilter === 'waiting'"
                     :class="['hub-stat-card is-clickable', statusFilter === 'waiting' ? 'is-selected' : '']">
                     <div class="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-                        <span class="w-1.5 h-1.5 rounded-full bg-yellow-600"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-yellow-600" aria-hidden="true"></span>
                         <span>等待开播</span>
                     </div>
                     <div class="text-2xl font-bold text-gray-900 hub-num mt-1" v-text="stats.waiting_rooms || 0"></div>
@@ -194,6 +117,7 @@
                 <button
                     type="button"
                     @click="setStatusFilter('stopped')"
+                    :aria-pressed="statusFilter === 'stopped'"
                     :class="['hub-stat-card is-clickable', statusFilter === 'stopped' ? 'is-selected' : '']">
                     <div class="text-xs font-medium text-gray-500">已停止 / 异常</div>
                     <div class="text-2xl font-bold text-gray-900 hub-num mt-1" v-text="stats.stopped_rooms"></div>
@@ -222,25 +146,27 @@
                             筛选: <span v-text="statusFilterLabel"></span> ✕
                         </button>
                     </div>
-                    <div class="relative w-full sm:w-72">
+                    <search class="relative w-full sm:w-72 hub-search-form">
                         <input
                             v-model.trim="searchKeyword"
                             type="text"
+                            aria-label="按主播名称或房间 ID 搜索"
                             placeholder="按主播名称或房间 ID 搜索..."
                             class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200">
-                        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2" fill="currentColor" viewBox="0 0 20 20">
+                        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                             <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
                         </svg>
                         <button
                             v-if="searchKeyword"
                             @click="searchKeyword = ''"
                             type="button"
+                            aria-label="清除搜索关键词"
                             class="absolute right-2 top-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>
-                    </div>
+                    </search>
                 </div>
 
                 <!-- 桌面端表格（正在直播自动置顶） -->
-                <div class="hidden md:block overflow-x-auto">
+                <div class="hidden md:block overflow-x-auto" role="region" aria-label="已接入直播间列表" tabindex="0">
                     <table class="desktop-table">
                         <colgroup>
                             <col style="width: 24%;">
@@ -276,7 +202,7 @@
                                 <td>
                                     <div class="flex flex-wrap items-center gap-1.5">
                                         <span :class="['hub-badge', getMonitorBadgeClass(room)]">
-                                            <span class="hub-badge-dot"></span>
+                                            <span class="hub-badge-dot" aria-hidden="true"></span>
                                             <span v-text="getMonitorStatusText(room)"></span>
                                         </span>
                                         <span v-if="room.live_status === 'live'" class="hub-badge is-live">
@@ -303,6 +229,7 @@
                                 <td class="text-right">
                                     <div class="inline-flex flex-wrap justify-end items-center gap-1">
                                         <button
+                                            type="button"
                                             @click="goToRoom(room.live_id)"
                                             class="hub-row-primary">
                                             进入房间
@@ -313,6 +240,7 @@
                                             统计
                                         </a>
                                         <button
+                                            type="button"
                                             v-if="!getIsMonitoring(room)"
                                             @click="startRoom(room.live_id)"
                                             :disabled="isRoomBusy(room.live_id)"
@@ -320,6 +248,7 @@
                                             启动
                                         </button>
                                         <button
+                                            type="button"
                                             v-if="getIsMonitoring(room)"
                                             @click="stopRoom(room.live_id)"
                                             :disabled="isRoomBusy(room.live_id)"
@@ -327,6 +256,7 @@
                                             停止
                                         </button>
                                         <button
+                                            type="button"
                                             @click="archiveRoom(room)"
                                             :disabled="isRoomBusy(room.live_id)"
                                             class="hub-row-ghost is-danger">
@@ -353,7 +283,7 @@
                             </div>
                             <div class="flex flex-wrap justify-end gap-1 flex-shrink-0">
                                 <span :class="['hub-badge', getMonitorBadgeClass(room)]">
-                                    <span class="hub-badge-dot"></span>
+                                    <span class="hub-badge-dot" aria-hidden="true"></span>
                                     <span v-text="getMonitorStatusText(room)"></span>
                                 </span>
                                 <span v-if="room.live_status === 'live'" class="hub-badge is-live">直播中</span>
@@ -374,19 +304,22 @@
                         </div>
 
                         <div class="grid grid-cols-4 gap-2">
-                            <button @click="goToRoom(room.live_id)" class="py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">进入</button>
+                            <button type="button" @click="goToRoom(room.live_id)" class="py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">进入</button>
                             <a :href="'/stats?live_id=' + encodeURIComponent(room.live_id)" class="text-center py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold">统计</a>
                             <button
+                                type="button"
                                 v-if="!getIsMonitoring(room)"
                                 @click="startRoom(room.live_id)"
                                 :disabled="isRoomBusy(room.live_id)"
                                 class="py-2 rounded-lg border border-gray-200 text-green-700 text-xs font-semibold disabled:opacity-50">启动</button>
                             <button
+                                type="button"
                                 v-if="getIsMonitoring(room)"
                                 @click="stopRoom(room.live_id)"
                                 :disabled="isRoomBusy(room.live_id)"
                                 class="py-2 rounded-lg border border-gray-200 text-yellow-800 text-xs font-semibold disabled:opacity-50">停止</button>
                             <button
+                                type="button"
                                 @click="archiveRoom(room)"
                                 :disabled="isRoomBusy(room.live_id)"
                                 class="py-2 rounded-lg border border-red-200 text-red-600 text-xs font-semibold disabled:opacity-50">归档</button>
@@ -396,19 +329,27 @@
             </section>
         </main>
 
-        <!-- 添加房间模态框（支持直接粘贴抖音直播间网址或分享文案） -->
-        <div v-if="showAddModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4" @click.self="closeAddModal">
-            <div class="modal-content bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 overflow-hidden">
+        <!-- 添加房间模态框（原生顶层 <dialog>，支持直接粘贴抖音直播间网址或分享文案） -->
+        <dialog
+            ref="addModal"
+            class="hub-modal modal-overlay hub-modal-md"
+            :closedby="addingRoom ? 'none' : 'any'"
+            aria-labelledby="add-modal-title"
+            @cancel="onDialogCancel($event, 'add')"
+            @close="onDialogClose('add')">
+            <div v-if="showAddModal" class="modal-content">
                 <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h3 class="text-base font-bold text-gray-900">添加直播间</h3>
-                    <button @click="closeAddModal" :disabled="addingRoom" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    <h3 id="add-modal-title" class="text-base font-bold text-gray-900">添加直播间</h3>
+                    <button type="button" @click="closeAddModal" :disabled="addingRoom" aria-label="关闭添加直播间弹窗" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                 </div>
                 <div class="px-6 py-5 space-y-3">
                     <div>
-                        <label class="block text-xs font-semibold text-gray-700 mb-1.5">房间 ID / 抖音号 / 直播间链接</label>
+                        <label for="add-room-input" class="block text-xs font-semibold text-gray-700 mb-1.5">房间 ID / 抖音号 / 直播间链接</label>
                         <input
+                            id="add-room-input"
                             v-model.trim="newRoom.live_id"
-                            @keyup.enter="addRoom"
+                            @keydown.enter="onAddRoomEnter"
+                            @compositionend="onAddRoomCompositionEnd"
                             type="text"
                             autofocus
                             placeholder="直接粘贴 https://live.douyin.com/xxx 或输入房间号"
@@ -421,20 +362,26 @@
                     <p class="text-xs text-gray-500">支持纯数字房间号、抖音号或分享文案，添加后默认 24h 自动检测开播。</p>
                 </div>
                 <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
-                    <button @click="closeAddModal" :disabled="addingRoom" class="hub-btn hub-btn-secondary">取消</button>
-                    <button @click="addRoom" :disabled="addingRoom" class="hub-btn hub-btn-primary">
+                    <button type="button" @click="closeAddModal" :disabled="addingRoom" class="hub-btn hub-btn-secondary">取消</button>
+                    <button type="button" @click="addRoom" :disabled="addingRoom" class="hub-btn hub-btn-primary">
                         <span v-text="addingRoom ? '添加中...' : '确认添加'"></span>
                     </button>
                 </div>
             </div>
-        </div>
+        </dialog>
 
         <!-- 代理设置模态框 -->
-        <div v-if="showProxyModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeProxyModal">
-            <div class="modal-content bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-100 overflow-hidden">
+        <dialog
+            ref="proxyModal"
+            class="hub-modal modal-overlay hub-modal-md"
+            :closedby="savingProxy ? 'none' : 'any'"
+            aria-labelledby="proxy-modal-title"
+            @cancel="onDialogCancel($event, 'proxy')"
+            @close="onDialogClose('proxy')">
+            <div v-if="showProxyModal" class="modal-content">
                 <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h3 class="text-lg font-bold text-gray-900">代理设置</h3>
-                    <button @click="closeProxyModal" :disabled="savingProxy" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    <h3 id="proxy-modal-title" class="text-lg font-bold text-gray-900">代理设置</h3>
+                    <button type="button" @click="closeProxyModal" :disabled="savingProxy" aria-label="关闭代理设置弹窗" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                 </div>
                 <div class="px-6 py-4 space-y-4">
                     <label class="flex items-center cursor-pointer">
@@ -442,13 +389,15 @@
                             v-model="proxy.enabled"
                             type="checkbox"
                             id="proxy_enabled"
+                            autofocus
                             class="mr-2 w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
                         <span class="text-sm font-medium text-gray-700">启用代理</span>
                     </label>
                     <div v-if="proxy.enabled" class="space-y-3">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">代理类型</label>
+                            <label for="proxy_type" class="block text-sm font-medium text-gray-700 mb-1">代理类型</label>
                             <select
+                                id="proxy_type"
                                 v-model="proxy.type"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500">
                                 <option value="http">HTTP</option>
@@ -456,16 +405,18 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">代理地址</label>
+                            <label for="proxy_host" class="block text-sm font-medium text-gray-700 mb-1">代理地址</label>
                             <input
+                                id="proxy_host"
                                 v-model.trim="proxy.host"
                                 type="text"
                                 placeholder="127.0.0.1"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">代理端口</label>
+                            <label for="proxy_port" class="block text-sm font-medium text-gray-700 mb-1">代理端口</label>
                             <input
+                                id="proxy_port"
                                 v-model.number="proxy.port"
                                 type="number"
                                 min="1"
@@ -479,20 +430,26 @@
                     </div>
                 </div>
                 <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
-                    <button @click="closeProxyModal" :disabled="savingProxy" class="hub-btn hub-btn-secondary">取消</button>
-                    <button @click="updateProxyConfig" :disabled="savingProxy" class="hub-btn hub-btn-primary">
+                    <button type="button" @click="closeProxyModal" :disabled="savingProxy" class="hub-btn hub-btn-secondary">取消</button>
+                    <button type="button" @click="updateProxyConfig" :disabled="savingProxy" class="hub-btn hub-btn-primary">
                         <span v-text="savingProxy ? '保存中...' : '保存配置'"></span>
                     </button>
                 </div>
             </div>
-        </div>
+        </dialog>
 
         <!-- Cookie 设置模态框 -->
-        <div v-if="showCookieModal" v-cloak class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeCookieModal">
-            <div class="modal-content bg-white rounded-xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden">
+        <dialog
+            ref="cookieModal"
+            class="hub-modal modal-overlay hub-modal-lg"
+            :closedby="cookieSaving ? 'none' : 'any'"
+            aria-labelledby="cookie-modal-title"
+            @cancel="onDialogCancel($event, 'cookie')"
+            @close="onDialogClose('cookie')">
+            <div v-if="showCookieModal" class="modal-content">
                 <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h3 class="text-lg font-bold text-gray-900">抖音 Cookie 设置</h3>
-                    <button @click="closeCookieModal" :disabled="cookieSaving" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    <h3 id="cookie-modal-title" class="text-lg font-bold text-gray-900">抖音 Cookie 设置</h3>
+                    <button type="button" @click="closeCookieModal" :disabled="cookieSaving" aria-label="关闭 Cookie 设置弹窗" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                 </div>
                 <div class="px-6 py-4 space-y-4">
                     <div class="text-sm bg-yellow-50 border border-yellow-200 text-yellow-900 p-3 rounded-lg space-y-1">
@@ -506,17 +463,19 @@
                             <span v-if="cookieHealth.last_check_time" class="text-yellow-700 text-xs"
                                   v-text="'（最后检测 ' + cookieHealth.last_check_time + '）'"></span>
                             <span v-if="cookieHealth.last_error" class="text-red-600 text-xs" v-text="cookieHealth.last_error"></span>
-                            <button @click="checkCookieHealth" :disabled="cookieChecking || !douyinCookie.configured"
+                            <button type="button" @click="checkCookieHealth" :disabled="cookieChecking || !douyinCookie.configured"
                                     class="ml-auto px-2.5 py-1 text-xs font-semibold bg-white border border-yellow-300 rounded-md hover:bg-yellow-100 disabled:opacity-50">
                                 <span v-text="cookieChecking ? '检测中...' : '立即测活'"></span>
                             </button>
                         </div>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">完整 Cookie</label>
+                        <label for="cookie_textarea" class="block text-sm font-medium text-gray-700 mb-1">完整 Cookie</label>
                         <textarea
+                            id="cookie_textarea"
                             v-model="cookieForm.cookie"
                             rows="6"
+                            autofocus
                             placeholder="从浏览器开发者工具 Network 请求头中复制完整 Cookie 值"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"></textarea>
                     </div>
@@ -532,18 +491,18 @@
                     </div>
                 </div>
                 <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
-                    <button @click="clearCookieConfig" :disabled="cookieSaving" class="hub-btn bg-red-50 text-red-600 border-red-200 hover:bg-red-100">
+                    <button type="button" @click="clearCookieConfig" :disabled="cookieSaving" class="hub-btn bg-red-50 text-red-600 border-red-200 hover:bg-red-100">
                         清空 Cookie
                     </button>
                     <div class="flex gap-2">
-                        <button @click="closeCookieModal" :disabled="cookieSaving" class="hub-btn hub-btn-secondary">取消</button>
-                        <button @click="updateCookieConfig" :disabled="cookieSaving" class="hub-btn hub-btn-primary">
+                        <button type="button" @click="closeCookieModal" :disabled="cookieSaving" class="hub-btn hub-btn-secondary">取消</button>
+                        <button type="button" @click="updateCookieConfig" :disabled="cookieSaving" class="hub-btn hub-btn-primary">
                             <span v-text="cookieSaving ? '保存中...' : '保存并应用'"></span>
                         </button>
                     </div>
                 </div>
             </div>
-        </div>
+        </dialog>
     </div>
 
     <script src="/static/js/ui-kit.js?v={{ asset_v('js/ui-kit.js') }}"></script>

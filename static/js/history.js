@@ -14,7 +14,7 @@ const app = new Vue({
         filteredRooms() {
             const kw = (this.searchKeyword || '').trim().toLowerCase();
             if (!kw) return this.rooms;
-            return this.rooms.filter(room => {
+            return this.rooms.filter((room) => {
                 const name = String(room.anchor_name || '').toLowerCase();
                 const lid = String(room.live_id || '').toLowerCase();
                 return name.includes(kw) || lid.includes(kw);
@@ -53,9 +53,8 @@ const app = new Vue({
             this.loading = true;
             this.error = '';
             try {
-                const response = await fetch('/api/rooms/archived');
-                const data = await response.json();
-                if (!response.ok) {
+                const { ok, data } = await window.HubUI.requestJson('/api/rooms/archived');
+                if (!ok) {
                     throw new Error(data.error || '加载历史数据失败');
                 }
                 this.rooms = data.rooms || [];
@@ -80,11 +79,11 @@ const app = new Vue({
 
             this.setRoomBusy(liveId, true);
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/restore`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                if (!response.ok) {
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(liveId)}/restore`,
+                    { method: 'POST' }
+                );
+                if (!ok) {
                     throw new Error(data.error || '恢复失败');
                 }
                 window.HubUI.toast(`已恢复「${label}」到控制台`, 'success');
@@ -105,13 +104,15 @@ const app = new Vue({
 
             this.setRoomBusy(liveId, true);
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(liveId)}/hard-delete`, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ confirm_live_id: liveId })
-                });
-                const data = await response.json();
-                if (!response.ok) {
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(liveId)}/hard-delete`,
+                    {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ confirm_live_id: liveId })
+                    }
+                );
+                if (!ok) {
                     throw new Error(data.error || '永久删除失败');
                 }
                 window.HubUI.toast(`已永久删除直播间 ${liveId}`, 'success');
@@ -126,32 +127,13 @@ const app = new Vue({
             window.location.href = `/room/${encodeURIComponent(liveId)}`;
         },
         formatNumber(value) {
-            const number = Number(value || 0);
-            return new Intl.NumberFormat('zh-CN', {
-                maximumFractionDigits: 0
-            }).format(number);
+            return window.HubUI.formatInteger(value);
         },
         formatDateTime(value) {
-            if (!value) return '-';
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return '-';
-            return date.toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            return window.HubUI.formatDateTime(value);
         },
         formatDate(value) {
-            if (!value) return '';
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return '';
-            return date.toLocaleDateString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            });
+            return window.HubUI.formatDate(value);
         },
         formatDateRange(start, end) {
             if (!start && !end) return '暂无数据';

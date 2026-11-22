@@ -83,7 +83,7 @@ const app = new Vue({
             if (this.currentSession) {
                 return this.stats.contributorInfo || [];
             }
-            if (this.stats.contributorInfo && this.stats.contributorInfo.length > 0) {
+            if (this.stats.contributorInfo?.length > 0) {
                 return this.stats.contributorInfo;
             }
             return this.offlineContributors || [];
@@ -92,7 +92,7 @@ const app = new Vue({
             if (this.currentSession) {
                 return this.stats.likeRankInfo || [];
             }
-            if (this.stats.likeRankInfo && this.stats.likeRankInfo.length > 0) {
+            if (this.stats.likeRankInfo?.length > 0) {
                 return this.stats.likeRankInfo;
             }
             return this.offlineLikeRank || [];
@@ -113,7 +113,7 @@ const app = new Vue({
             );
         },
         roomStatusNote() {
-            if (!this.room || !this.room.error_message) {
+            if (!this.room?.error_message) {
                 return '';
             }
             if (['offline', 'waiting', 'error'].includes(this.room.status)) {
@@ -123,30 +123,45 @@ const app = new Vue({
         },
         chatMessageCount() {
             let count = 0;
-            for (let i = 0; i < this.messages.length; i++) {
-                if (this.messages[i].type === 'chat') count++;
+            for (const msg of this.messages) {
+                if (msg.type === 'chat') count++;
             }
             return count;
         },
         giftMessageCount() {
             let count = 0;
-            for (let i = 0; i < this.messages.length; i++) {
-                if (this.messages[i].type === 'gift') count++;
+            for (const msg of this.messages) {
+                if (msg.type === 'gift') count++;
             }
             return count;
         },
         filteredMessages() {
-            if (this.activeTab === 'all') {
-                return this.messages;
-            } else if (this.activeTab === 'chat') {
-                return this.messages.filter(m => m.type === 'chat');
-            } else if (this.activeTab === 'gift') {
-                return this.messages.filter(m => m.type === 'gift');
+            if (this.activeTab === 'chat') {
+                return this.messages.filter((m) => m.type === 'chat');
+            }
+            if (this.activeTab === 'gift') {
+                return this.messages.filter((m) => m.type === 'gift');
             }
             return this.messages;
         }
     },
     watch: {
+        showUserMessagesModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.userMessagesModal, val, {
+                    getClosedBy: () => 'any',
+                    onDismiss: () => this.closeUserMessagesModal()
+                });
+            });
+        },
+        showSessionsModal(val) {
+            this.$nextTick(() => {
+                window.HubUI.syncModalDialog(this.$refs.sessionsModal, val, {
+                    getClosedBy: () => 'any',
+                    onDismiss: () => this.closeSessionsModal()
+                });
+            });
+        },
         userNameSearch(value) {
             if (this.userSearchDebounceTimer) {
                 clearTimeout(this.userSearchDebounceTimer);
@@ -157,6 +172,8 @@ const app = new Vue({
 
             if (!raw) {
                 this.userSearchRequestSeq++;
+                this._userSearchAbortController?.abort();
+                this._userSearchAbortController = null;
                 this.userSearchResults = [];
                 this.userSearchHasSearched = false;
                 this.userSearchLoading = false;
@@ -178,6 +195,9 @@ const app = new Vue({
         this._previewedSessionId = null;
         this._isOfflinePreviewMessages = false;
         this._recentMsgSeq = 0;
+        this._userSearchAbortController = null;
+        this._userMessagesAbortController = null;
+        this._messagesResizeObserver = null;
 
         const metaEl = document.querySelector('meta[name="live-id"]');
         this.liveId = metaEl ? metaEl.content : '';
@@ -190,7 +210,7 @@ const app = new Vue({
 
         this.roomInfoRefreshTimer = setInterval(() => {
             if (!document.hidden) {
-                this.loadRoomInfo({ loadHistory: false, syncSession: true });
+                this.loadRoomInfo({ loadHistory: false, syncSession: true, background: true });
             }
         }, 10000);
 
@@ -201,33 +221,35 @@ const app = new Vue({
         this._visibilityHandler = () => {
             if (!document.hidden) {
                 this.nowTick = Date.now();
-                this.loadRoomInfo({ loadHistory: false, syncSession: true });
+                this.loadRoomInfo({ loadHistory: false, syncSession: true, background: true });
             }
         };
         document.addEventListener('visibilitychange', this._visibilityHandler);
 
         this._keydownHandler = (e) => {
-            if (e.key === 'Escape') {
-                if (this.showUserMessagesModal) {
-                    this.closeUserMessagesModal();
-                } else if (this.showSessionsModal) {
-                    this.closeSessionsModal();
-                }
+            if (e.key === 'Escape' && this.userSearchFocused && !this.showUserMessagesModal && !this.showSessionsModal) {
+                this.userSearchFocused = false;
             }
         };
         document.addEventListener('keydown', this._keydownHandler);
 
         this.$nextTick(() => {
-            const container = document.querySelector('.messages-container');
+            const container = this.getMessagesContainer();
             if (container) {
                 container.addEventListener('scroll', this.handleScroll, { passive: true });
+                if (typeof ResizeObserver !== 'undefined') {
+                    this._messagesResizeObserver = new ResizeObserver(() => {
+                        if (this.isAtBottom) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    });
+                    this._messagesResizeObserver.observe(container);
+                }
             }
         });
     },
     beforeDestroy() {
-        if (this.socket) {
-            this.socket.disconnect();
-        }
+        this.socket?.disconnect();
         if (this.userSearchDebounceTimer) {
             clearTimeout(this.userSearchDebounceTimer);
         }
@@ -244,18 +266,32 @@ const app = new Vue({
             cancelAnimationFrame(this._scrollRafId);
             this._scrollRafId = null;
         }
+        this._userSearchAbortController?.abort();
+        this._userMessagesAbortController?.abort();
+        this._messagesResizeObserver?.disconnect();
+        this._messagesResizeObserver = null;
         if (this._visibilityHandler) {
             document.removeEventListener('visibilitychange', this._visibilityHandler);
         }
         if (this._keydownHandler) {
             document.removeEventListener('keydown', this._keydownHandler);
         }
-        const container = document.querySelector('.messages-container');
+        const container = this.getMessagesContainer();
         if (container) {
             container.removeEventListener('scroll', this.handleScroll);
         }
     },
     methods: {
+        getMessagesContainer() {
+            return this.$refs.messagesContainer || document.querySelector('.messages-container');
+        },
+        onDialogClose(kind) {
+            if (kind === 'user' && this.showUserMessagesModal) {
+                this.closeUserMessagesModal();
+            } else if (kind === 'sessions' && this.showSessionsModal) {
+                this.closeSessionsModal();
+            }
+        },
         onUserSearchBlur() {
             if (this.userSearchBlurTimer) {
                 clearTimeout(this.userSearchBlurTimer);
@@ -274,7 +310,7 @@ const app = new Vue({
                     this.room.is_active = false;
                 }
             }
-            if (Object.prototype.hasOwnProperty.call(this.pendingRoomState, 'room_error_message')) {
+            if (Object.hasOwn(this.pendingRoomState, 'room_error_message')) {
                 this.room.error_message = this.pendingRoomState.room_error_message;
             }
             this.pendingRoomState = null;
@@ -284,8 +320,10 @@ const app = new Vue({
             const wsVersionBefore = this._wsStatsVersion;
             const historyPromise = options.loadHistory !== false ? this.loadHistorySessions() : Promise.resolve();
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}`,
+                    options.background ? { priority: 'low' } : {}
+                );
                 if (reqSeq !== this._roomInfoSeq) {
                     return;
                 }
@@ -299,10 +337,8 @@ const app = new Vue({
                     const anchorName = data.room.anchor_name || this.liveId;
                     document.title = `${anchorName} - 直播详情`;
 
-                    if (options.syncSession) {
-                        if (data.room.status !== 'monitoring' && this.currentSession) {
-                            await this.loadCurrentSession();
-                        }
+                    if (options.syncSession && data.room.status !== 'monitoring' && this.currentSession) {
+                        await this.loadCurrentSession();
                     }
                 }
             } catch (error) {
@@ -318,14 +354,15 @@ const app = new Vue({
             if (this._sessionSyncInFlight) return;
             this._sessionSyncInFlight = true;
             const wsVersionBefore = this._wsStatsVersion;
-            const hadLive = Boolean(this.currentSession && this.currentSession.status === 'live');
+            const hadLive = Boolean(this.currentSession?.status === 'live');
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/current-session`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/current-session`
+                );
                 if (this._wsStatsVersion !== wsVersionBefore) {
                     return;
                 }
-                if (data.session && data.session.status === 'live') {
+                if (data.session?.status === 'live') {
                     this.clearOfflinePreviewForLive();
                     this.currentSession = data.session;
                     if (data.session.id && this._prefilledSessionId !== data.session.id) {
@@ -337,8 +374,8 @@ const app = new Vue({
                     if (hadLive) {
                         await this.loadHistorySessions();
                     }
-                    const fallbackSession = (data.session && data.session.id) ? data.session : this.lastSession;
-                    if (fallbackSession && fallbackSession.id) {
+                    const fallbackSession = data.session?.id ? data.session : this.lastSession;
+                    if (fallbackSession?.id) {
                         this.activateOfflinePreview(fallbackSession);
                     }
                 }
@@ -357,7 +394,7 @@ const app = new Vue({
             this._previewedSessionId = null;
         },
         activateOfflinePreview(sessionObj) {
-            if (!sessionObj || !sessionObj.id || this.currentSession) return;
+            if (!sessionObj?.id || this.currentSession) return;
             this.previewSession = sessionObj;
             if (this._previewedSessionId === sessionObj.id) return;
             this._previewedSessionId = sessionObj.id;
@@ -367,17 +404,16 @@ const app = new Vue({
         async loadOfflinePreviewRanks(sessionId) {
             if (!sessionId || this.currentSession) return;
             const contributorsReq = fetch(`/api/rooms/sessions/${encodeURIComponent(sessionId)}?type=contributors`)
-                .then(r => (r.ok ? r.json() : null));
+                .then((r) => (r.ok ? r.json() : null));
             const likersReq = fetch(`/api/rooms/top-likers?live_id=${encodeURIComponent(this.liveId)}&limit=50`)
-                .then(r => (r.ok ? r.json() : null));
+                .then((r) => (r.ok ? r.json() : null));
             const [contribRes, likerRes] = await Promise.allSettled([contributorsReq, likersReq]);
 
             if (
                 contribRes.status === 'fulfilled' &&
                 contribRes.value &&
                 !this.currentSession &&
-                this.previewSession &&
-                this.previewSession.id === sessionId &&
+                this.previewSession?.id === sessionId &&
                 Array.isArray(contribRes.value.contributors)
             ) {
                 this.offlineContributors = contribRes.value.contributors.map((c, idx) => Object.freeze({
@@ -419,14 +455,14 @@ const app = new Vue({
                     session_id: String(sessionId),
                     limit: '50'
                 });
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/messages?${params}`);
-                if (!response.ok || reqSeq !== this._recentMsgSeq) return;
-                const data = await response.json();
-                if (reqSeq !== this._recentMsgSeq) return;
-                if (isPreview && (this.currentSession || !this.previewSession || this.previewSession.id !== sessionId)) {
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/messages?${params}`
+                );
+                if (!ok || reqSeq !== this._recentMsgSeq) return;
+                if (isPreview && (this.currentSession || this.previewSession?.id !== sessionId)) {
                     return;
                 }
-                if (!isPreview && (!this.currentSession || this.currentSession.id !== sessionId)) {
+                if (!isPreview && this.currentSession?.id !== sessionId) {
                     return;
                 }
                 const rawList = Array.isArray(data.messages) ? data.messages : [];
@@ -439,7 +475,7 @@ const app = new Vue({
                 }
 
                 // 后端按倒序返回最新 50 条，翻转为时间正序后铺底到实时流之前
-                const historical = rawList.slice().reverse().map((item) => Object.freeze({
+                const historical = rawList.toReversed().map((item) => Object.freeze({
                     type: item.type || 'chat',
                     user: item.user || item.user_name || '匿名用户',
                     user_id: item.user_id || null,
@@ -481,8 +517,9 @@ const app = new Vue({
         },
         async loadHistorySessions() {
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/sessions?limit=15`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/sessions?limit=15`
+                );
 
                 if (data.sessions) {
                     this.sessions = data.sessions;
@@ -490,9 +527,9 @@ const app = new Vue({
                         this.lastSession = null;
                         return;
                     }
-                    const endedSessions = data.sessions.filter(s => s.status === 'ended');
+                    const endedSessions = data.sessions.filter((s) => s.status === 'ended');
                     this.lastSession = endedSessions.length > 0 ? endedSessions[0] : data.sessions[0];
-                    if (!this.currentSession && this.lastSession && this.lastSession.id) {
+                    if (!this.currentSession && this.lastSession?.id) {
                         this.activateOfflinePreview(this.lastSession);
                     }
                 }
@@ -504,12 +541,12 @@ const app = new Vue({
             if (this.actionLoading) return;
             this.actionLoading = true;
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/start`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/start`,
+                    { method: 'POST' }
+                );
 
-                if (response.ok) {
+                if (ok) {
                     window.HubUI.toast('已启动房间监控', 'success');
                     await this.loadRoomInfo();
                 } else {
@@ -533,12 +570,12 @@ const app = new Vue({
 
             this.actionLoading = true;
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/stop`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/stop`,
+                    { method: 'POST' }
+                );
 
-                if (response.ok) {
+                if (ok) {
                     window.HubUI.toast('已停止房间监控', 'info');
                     await Promise.all([
                         this.loadRoomInfo(),
@@ -564,12 +601,12 @@ const app = new Vue({
 
             this.actionLoading = true;
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/restore`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/restore`,
+                    { method: 'POST' }
+                );
 
-                if (response.ok) {
+                if (ok) {
                     window.HubUI.toast('已恢复到首页控制台', 'success');
                     await this.loadRoomInfo();
                 } else {
@@ -584,13 +621,14 @@ const app = new Vue({
         async loadSessionContributors() {
             const wsVersionBefore = this._wsStatsVersion;
             try {
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/session-contributors?limit=100`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/session-contributors?limit=100`
+                );
                 if (this._wsStatsVersion !== wsVersionBefore) {
                     return;
                 }
 
-                if (data.contributors && data.contributors.length > 0) {
+                if (data.contributors?.length > 0) {
                     const patch = {
                         contributorInfo: data.contributors.map((c, index) => Object.freeze({
                             rank: index + 1,
@@ -612,9 +650,7 @@ const app = new Vue({
             }
         },
         initSocket() {
-            if (this.socket) {
-                this.socket.disconnect();
-            }
+            this.socket?.disconnect();
             if (typeof io === 'undefined') {
                 console.warn('Socket.IO 客户端库未加载');
                 return;
@@ -643,20 +679,20 @@ const app = new Vue({
                             this.room.is_active = false;
                         }
                     }
-                    if (Object.prototype.hasOwnProperty.call(data, 'room_error_message')) {
+                    if (Object.hasOwn(data, 'room_error_message')) {
                         this.room.error_message = data.room_error_message;
                     }
                 } else {
                     this.pendingRoomState = {
                         room_status: data.room_status,
-                        ...(Object.prototype.hasOwnProperty.call(data, 'room_error_message')
+                        ...(Object.hasOwn(data, 'room_error_message')
                             ? { room_error_message: data.room_error_message }
                             : {})
                     };
                 }
 
-                const wasLive = Boolean(this.currentSession && this.currentSession.status === 'live');
-                const isNextLive = Boolean(data.current_session && data.current_session.status === 'live');
+                const wasLive = Boolean(this.currentSession?.status === 'live');
+                const isNextLive = Boolean(data.current_session?.status === 'live');
 
                 this.mergeStats(data, { sessionEnded: !isNextLive });
 
@@ -671,7 +707,7 @@ const app = new Vue({
                     this.currentSession = null;
                     if (wasLive || !this.lastSession) {
                         this.loadHistorySessions();
-                    } else if (this.lastSession && this.lastSession.id) {
+                    } else if (this.lastSession?.id) {
                         this.activateOfflinePreview(this.lastSession);
                     }
                 }
@@ -681,10 +717,10 @@ const app = new Vue({
             if (!rawStats) return;
 
             const pick = (camelKey, snakeKey) => {
-                if (Object.prototype.hasOwnProperty.call(rawStats, camelKey)) {
+                if (Object.hasOwn(rawStats, camelKey)) {
                     return rawStats[camelKey];
                 }
-                if (Object.prototype.hasOwnProperty.call(rawStats, snakeKey)) {
+                if (Object.hasOwn(rawStats, snakeKey)) {
                     return rawStats[snakeKey];
                 }
                 return undefined;
@@ -700,18 +736,18 @@ const app = new Vue({
                 likeRankInfo: this.stats.likeRankInfo || []
             };
 
-            [
+            for (const [camelKey, snakeKey] of [
                 ['currentUserCount', 'current_user_count'],
                 ['totalUserCount', 'total_user_count'],
                 ['totalLikeCount', 'total_like_count'],
                 ['totalIncome', 'total_income'],
                 ['contributorCount', 'contributor_count']
-            ].forEach(([camelKey, snakeKey]) => {
+            ]) {
                 const value = pick(camelKey, snakeKey);
                 if (value !== undefined && value !== null && value !== '') {
                     nextStats[camelKey] = value;
                 }
-            });
+            }
 
             const contributorInfo = pick('contributorInfo', 'contributor_info');
             if (Array.isArray(contributorInfo)) {
@@ -726,7 +762,7 @@ const app = new Vue({
                 );
 
                 if (!shouldKeepExistingList) {
-                    nextStats.contributorInfo = contributorInfo.map(item => Object.freeze(item));
+                    nextStats.contributorInfo = contributorInfo.map((item) => Object.freeze(item));
                 }
             }
 
@@ -740,7 +776,7 @@ const app = new Vue({
                 );
 
                 if (!shouldKeepExistingLikeList) {
-                    nextStats.likeRankInfo = likeRankInfo.map(item => Object.freeze(item));
+                    nextStats.likeRankInfo = likeRankInfo.map((item) => Object.freeze(item));
                 }
             }
 
@@ -809,7 +845,7 @@ const app = new Vue({
             if (!this._scrollRafId) {
                 this._scrollRafId = window.requestAnimationFrame(() => {
                     this._scrollRafId = null;
-                    const container = document.querySelector('.messages-container');
+                    const container = this.getMessagesContainer();
                     if (container && this.isAtBottom) {
                         container.scrollTop = container.scrollHeight;
                     }
@@ -822,12 +858,12 @@ const app = new Vue({
             const userName = msg.user || msg.user_name || null;
             if (!userId && !userName) return;
             this.openUserMessagesModal(userId, userName || userId, {
-                sessionId: msg.session_id || (this.currentSession ? this.currentSession.id : (this.previewSession ? this.previewSession.id : null)),
+                sessionId: msg.session_id || this.currentSession?.id || this.previewSession?.id || null,
                 userName: userName
             });
         },
         handleScroll() {
-            const container = document.querySelector('.messages-container');
+            const container = this.getMessagesContainer();
             if (!container) return;
 
             const threshold = 50;
@@ -841,7 +877,7 @@ const app = new Vue({
             }
         },
         scrollToBottom() {
-            const container = document.querySelector('.messages-container');
+            const container = this.getMessagesContainer();
             if (container) {
                 container.scrollTop = container.scrollHeight;
                 this.isAtBottom = true;
@@ -855,18 +891,10 @@ const app = new Vue({
             this.activeRankTab = tab;
         },
         formatIncome(value) {
-            return value ? value.toLocaleString() + ' 钻石' : '0 钻石';
+            return `${window.HubUI.formatInteger(value)} 钻石`;
         },
         formatNumber(value) {
-            if (!value) return '0';
-            value = Number(value);
-            if (value >= 100000000) {
-                return (value / 100000000).toFixed(1) + '亿';
-            } else if (value >= 10000) {
-                return (value / 10000).toFixed(1) + '万';
-            } else {
-                return value.toLocaleString();
-            }
+            return window.HubUI.formatCompactNumber(value);
         },
         getBadgeClass(status) {
             switch (status) {
@@ -891,17 +919,17 @@ const app = new Vue({
         getMessageClass(message) {
             if (message.type === 'gift') {
                 return 'gift-message';
-            } else if (message.is_gift_user) {
+            }
+            if (message.is_gift_user) {
                 return 'gift-user-message';
             }
             return 'chat-message';
         },
         getSessionStatusClass(status) {
-            switch (status) {
-                case 'live': return 'bg-green-100 text-green-800';
-                case 'ended': return 'bg-gray-100 text-gray-800';
-                default: return 'bg-gray-100 text-gray-800';
+            if (status === 'live') {
+                return 'bg-green-100 text-green-800';
             }
+            return 'bg-gray-100 text-gray-800';
         },
         getSessionStatusText(status) {
             switch (status) {
@@ -911,15 +939,7 @@ const app = new Vue({
             }
         },
         formatDateTime(dateStr) {
-            if (!dateStr) return '-';
-            const d = new Date(dateStr);
-            return d.toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            return window.HubUI.formatDateTime(dateStr);
         },
         getDuration(startTime, endTime, tickNow = null) {
             if (!startTime) return '-';
@@ -984,6 +1004,10 @@ const app = new Vue({
                 return;
             }
 
+            this._userSearchAbortController?.abort();
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this._userSearchAbortController = controller;
+
             this.userSearchLoading = true;
             const requestSeq = ++this.userSearchRequestSeq;
             try {
@@ -991,12 +1015,14 @@ const app = new Vue({
                     user_name: userName,
                     limit: 30
                 });
-                if (this.currentSession && this.currentSession.id) {
+                if (this.currentSession?.id) {
                     params.append('session_id', this.currentSession.id);
                 }
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/user-search?${params}`);
-                const data = await response.json();
-                if (!response.ok) {
+                const { ok, data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/user-search?${params}`,
+                    controller ? { signal: controller.signal } : {}
+                );
+                if (!ok) {
                     throw new Error(data.error || '搜索失败');
                 }
                 if (requestSeq !== this.userSearchRequestSeq) {
@@ -1008,7 +1034,7 @@ const app = new Vue({
                     this.userSearchError = '未找到匹配用户';
                 }
             } catch (error) {
-                if (requestSeq !== this.userSearchRequestSeq) {
+                if (error?.name === 'AbortError' || requestSeq !== this.userSearchRequestSeq) {
                     return;
                 }
                 console.error('搜索用户失败:', error);
@@ -1026,7 +1052,7 @@ const app = new Vue({
             this.openUserMessagesModal(
                 user.user_id,
                 user.nickname || user.user_id,
-                user.session_id || (this.currentSession ? this.currentSession.id : null)
+                user.session_id || this.currentSession?.id || null
             );
         },
         async openUserMessagesModal(userId, userName, sessionOrOpts = null) {
@@ -1048,12 +1074,14 @@ const app = new Vue({
             this.userMessagesQuery.user_name = userId ? null : (fallbackUserName || userName || null);
             this.userMessagesQuery.session_id = allSessions
                 ? null
-                : (sessionId || (this.currentSession ? this.currentSession.id : (this.previewSession ? this.previewSession.id : null)));
+                : (sessionId || this.currentSession?.id || this.previewSession?.id || null);
 
             this.resetUserMessagesData(userId || null, userName || fallbackUserName);
             await this.loadUserMessages();
         },
         closeUserMessagesModal() {
+            this._userMessagesAbortController?.abort();
+            this._userMessagesAbortController = null;
             this.showUserMessagesModal = false;
             this.resetUserMessagesData();
             this.userMessagesQuery = {
@@ -1065,6 +1093,10 @@ const app = new Vue({
         async loadUserMessages(options = {}) {
             const showLoading = options.showLoading !== false;
             if (!this.userMessagesQuery.user_id && !this.userMessagesQuery.user_name) return false;
+
+            this._userMessagesAbortController?.abort();
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this._userMessagesAbortController = controller;
 
             if (showLoading) {
                 this.userMessagesLoading = true;
@@ -1085,8 +1117,10 @@ const app = new Vue({
                     params.append('session_id', this.userMessagesQuery.session_id);
                 }
 
-                const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}/user-messages?${params}`);
-                const data = await response.json();
+                const { data } = await window.HubUI.requestJson(
+                    `/api/rooms/${encodeURIComponent(this.liveId)}/user-messages?${params}`,
+                    controller ? { signal: controller.signal } : {}
+                );
 
                 if (data.user) {
                     this.userMessagesData.user = data.user;
@@ -1100,13 +1134,16 @@ const app = new Vue({
                 if (data.pagination) {
                     this.userMessagesData.pagination = data.pagination;
                 }
-                return (data.stats && data.stats.total_messages > 0) || (data.messages && data.messages.length > 0);
+                return (data.stats?.total_messages > 0) || (data.messages?.length > 0);
             } catch (error) {
+                if (error?.name === 'AbortError') {
+                    return false;
+                }
                 console.error('加载用户消息失败:', error);
                 this.userSearchError = '搜索失败，请稍后重试';
                 return false;
             } finally {
-                if (showLoading) {
+                if (showLoading && this._userMessagesAbortController === controller) {
                     this.userMessagesLoading = false;
                 }
             }
@@ -1124,19 +1161,10 @@ const app = new Vue({
             await this.loadUserMessages();
         },
         formatUserMessageTime(dateStr) {
-            if (!dateStr) return '';
-            const d = new Date(dateStr);
-            const MM = String(d.getMonth() + 1).padStart(2, '0');
-            const DD = String(d.getDate()).padStart(2, '0');
-            const time = d.toLocaleTimeString('zh-CN', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            return `${MM}-${DD} ${time}`;
+            return window.HubUI.formatShortMessageTime(dateStr);
         },
         formatAgeRange(val) {
-            const map = {0: '-', 1: '<18', 2: '18-23', 3: '24-30', 4: '31-40', 5: '41-50', 6: '>50'};
+            const map = { 0: '-', 1: '<18', 2: '18-23', 3: '24-30', 4: '31-40', 5: '41-50', 6: '>50' };
             return map[val] || '-';
         },
         isBlankNickname(name) {
@@ -1149,7 +1177,7 @@ const app = new Vue({
             return window.HubUI.formatAvatarInitial(name, fallbackId);
         },
         formatChatSegments(msg) {
-            return window.HubUI.parseChatSegments(this.formatMessageBody(msg), msg && msg.emoji_list);
+            return window.HubUI.parseChatSegments(this.formatMessageBody(msg), msg?.emoji_list);
         },
         parseChatSegments(text, emojiList) {
             return window.HubUI.parseChatSegments(text, emojiList);

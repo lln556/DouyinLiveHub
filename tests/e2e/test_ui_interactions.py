@@ -891,5 +891,135 @@ def test_emoji_rendering_and_fallback_across_pages(authed_page, base_url, factor
     assert page_errors == []
 
 
+def test_modern_native_dialogs_ime_guard_and_stacked_top_layer(authed_page, base_url, factories):
+    """原生顶层 <dialog> 弹窗、IME 组合态回车保护、顶层 popover Toast 与多层叠加 Esc 逐层关闭均正常。"""
+    factories.room(live_id="e2e_modern_01", anchor_name="现代Web标准测试")
+
+    page_errors = []
+    console_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+    authed_page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+
+    # 1. 首页：验证原生 <dialog> 打开、IME Enter 保护、顶层 Toast 及 Esc 关闭
+    authed_page.goto(f"{base_url}/", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    authed_page.get_by_role("button", name="+ 添加直播间").click()
+    authed_page.wait_for_function("() => document.querySelectorAll('dialog[open]').length === 1")
+
+    # 模拟中文输入法组合态下的 Enter（isComposing / keyCode=229）不应触发提交或提示
+    authed_page.evaluate(
+        """() => {
+            const input = document.getElementById('add-room-input');
+            const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+            Object.defineProperty(ev, 'isComposing', { value: true });
+            input.dispatchEvent(ev);
+        }"""
+    )
+    authed_page.wait_for_timeout(120)
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.showAddModal") is True
+    assert authed_page.locator(".hub-toast").count() == 0
+
+    # 空输入点击“确认添加”应弹出位于顶层 Popover 中的 Toast，而不会关闭弹窗
+    authed_page.get_by_role("button", name="确认添加").click()
+    authed_page.locator(".hub-toast").wait_for()
+    assert authed_page.evaluate(
+        """() => {
+            const c = document.querySelector('.hub-toast-container');
+            return Boolean(c && (typeof c.showPopover !== 'function' || c.matches(':popover-open')));
+        }"""
+    ) is True
+
+    # 按 Esc 关闭原生 <dialog>，Vue 状态同步回 false
+    authed_page.keyboard.press("Escape")
+    authed_page.wait_for_function(
+        "() => document.querySelector('#app').__vue__.showAddModal === false && document.querySelectorAll('dialog[open]').length === 0"
+    )
+
+    # 2. 统计页：验证 场次详情 <dialog> 内再打开 用户消息 <dialog> 的原生顶层叠加与逐层 Esc 关闭
+    authed_page.route(
+        "**/api/rooms/sessions/909*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "session": {
+                        "id": 909,
+                        "live_id": "e2e_modern_01",
+                        "start_time": "2026-11-23T01:00:00",
+                        "status": "ended",
+                        "total_income": 100,
+                        "total_gift_count": 1,
+                        "total_chat_count": 1,
+                    },
+                    "counts": {"chat_count": 1, "gift_count": 0},
+                    "chats": [
+                        {
+                            "id": 3001,
+                            "user_id": "u_mod_1",
+                            "nickname": "叠加弹窗观众",
+                            "content": "测试原生顶层叠加[微笑]",
+                            "created_at": "2026-11-23T01:05:00",
+                        }
+                    ],
+                }
+            ),
+        ),
+    )
+    authed_page.route(
+        "**/user-messages*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "user": {"user_id": "u_mod_1", "nickname": "叠加弹窗观众"},
+                    "stats": {"total_messages": 1, "chat_count": 1, "gift_count": 0, "like_count": 0, "total_value": 0},
+                    "messages": [
+                        {
+                            "id": 3001,
+                            "type": "chat",
+                            "user_id": "u_mod_1",
+                            "nickname": "叠加弹窗观众",
+                            "content": "测试原生顶层叠加[微笑]",
+                            "created_at": "2026-11-23T01:05:00",
+                        }
+                    ],
+                    "pagination": {"page": 1, "page_size": 50, "total": 1, "total_pages": 1},
+                }
+            ),
+        ),
+    )
+
+    authed_page.goto(f"{base_url}/stats?live_id=e2e_modern_01&range=total", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+    authed_page.evaluate("() => document.querySelector('#app').__vue__.viewSessionDetail({ id: 909 })")
+    authed_page.wait_for_function("() => document.querySelectorAll('dialog[open]').length === 1")
+
+    authed_page.locator("dialog[open] .clickable-user", has_text="叠加弹窗观众").first.click()
+    authed_page.wait_for_function(
+        "() => document.querySelectorAll('dialog[open]').length === 2 && document.querySelector('#app').__vue__.showUserMessagesModal === true"
+    )
+
+    # 第一次 Esc 仅关闭最上层的用户消息弹窗，场次详情弹窗保持打开
+    authed_page.keyboard.press("Escape")
+    authed_page.wait_for_function(
+        "() => document.querySelector('#app').__vue__.showUserMessagesModal === false && document.querySelector('#app').__vue__.showSessionModal === true && document.querySelectorAll('dialog[open]').length === 1"
+    )
+
+    # 第二次 Esc 关闭底层的场次详情弹窗
+    authed_page.keyboard.press("Escape")
+    authed_page.wait_for_function(
+        "() => document.querySelector('#app').__vue__.showSessionModal === false && document.querySelectorAll('dialog[open]').length === 0"
+    )
+
+    assert page_errors == [], f"pageerror: {page_errors}"
+    assert console_errors == [], f"console errors: {console_errors}"
+
+
 
 
