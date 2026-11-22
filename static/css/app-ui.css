@@ -577,3 +577,21 @@ body {
         font-size: 13px;
     }
 }
+
+.danmu-emoji {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin: 0 1px;
+    vertical-align: -0.22em;
+    object-fit: contain;
+}
+
+.danmu-emoji-sticker {
+    display: inline-block;
+    height: 42px;
+    max-width: 96px;
+    margin: 2px;
+    vertical-align: middle;
+    object-fit: contain;
+}

@@ -48,7 +48,7 @@ _gzip_cache = {}
 _shutdown_lock = threading.Lock()
 _shutdown_complete = False
 
-_PUBLIC_STATIC_ENDPOINTS = {'static', 'favicon', 'serve_level_img', 'serve_fansclub_img'}
+_PUBLIC_STATIC_ENDPOINTS = {'static', 'favicon', 'serve_level_img', 'serve_fansclub_img', 'serve_emoji_img'}
 
 
 class _PublicStaticSessionInterface(SecureCookieSessionInterface):
@@ -122,7 +122,7 @@ def optimize_response_headers_and_compress(response):
     if request.endpoint in _PUBLIC_STATIC_ENDPOINTS and response.status_code in (200, 304):
         response.vary.discard('Cookie')
         response.vary.discard('cookie')
-        if 'v' in request.args or request.path.startswith(('/static/vendor/', '/level_img/', '/fansclub_img/')):
+        if 'v' in request.args or request.path.startswith(('/static/vendor/', '/level_img/', '/fansclub_img/', '/emoji_img/')):
             response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
         else:
             response.headers['Cache-Control'] = 'public, max-age=86400'
@@ -210,6 +210,7 @@ def migrate_database(engine):
         ('live_sessions', 'total_like_count', 'INTEGER DEFAULT 0'),
         ('live_rooms', 'archived_at', 'DATETIME NULL'),
         ('user_contributions', 'display_id', 'VARCHAR(100) NULL'),
+        ('chat_messages', 'emoji_list', 'JSON NULL'),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:
@@ -414,6 +415,12 @@ def serve_level_img(filename):
 def serve_fansclub_img(filename):
     """提供粉丝团等级图标静态文件"""
     return send_from_directory('data/fansclub_img', filename)
+
+
+@app.route('/emoji_img/<path:filename>')
+def serve_emoji_img(filename):
+    """提供抖音官方表情静态文件"""
+    return send_from_directory('data/emoji_img', filename)
 
 
 @app.route('/')

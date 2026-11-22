@@ -36,6 +36,7 @@ message EmojiChatMessage {
   Image    backgroundImage = 6;
   bool  fromIntercom = 7;
   bool   intercomHideUserCard = 8;
+  PublicAreaCommon publicAreaCommon = 9;
 }
 
 // 聊天
@@ -60,6 +61,7 @@ message ChatMessage {
   string chatBy = 20;
   uint32 individualChatPriority = 21;
   Text rtfContent = 22;
+  Text rtfContentV2 = 23;
 }
 
 
@@ -299,7 +301,7 @@ message Text {
 }
 
 message TextPiece {
-  bool type = 1;
+  uint32 type = 1;
   TextFormat format = 2;
   string stringValue = 3;
   TextPieceUser userValue = 4;

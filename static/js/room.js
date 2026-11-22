@@ -446,6 +446,7 @@ const app = new Vue({
                     user_level: item.user_level || 0,
                     fans_club_level: item.fans_club_level || 0,
                     text: item.text !== undefined && item.text !== null ? item.text : item.content,
+                    emoji_list: Array.isArray(item.emoji_list) ? item.emoji_list : null,
                     is_gift_user: Boolean(item.is_gift_user),
                     gift_name: item.gift_name,
                     gift_count: item.gift_count,
@@ -1146,6 +1147,15 @@ const app = new Vue({
         },
         formatAvatarInitial(name, fallbackId = 'U') {
             return window.HubUI.formatAvatarInitial(name, fallbackId);
+        },
+        formatChatSegments(msg) {
+            return window.HubUI.parseChatSegments(this.formatMessageBody(msg), msg && msg.emoji_list);
+        },
+        parseChatSegments(text, emojiList) {
+            return window.HubUI.parseChatSegments(text, emojiList);
+        },
+        onEmojiError(event) {
+            window.HubUI.handleEmojiError(event);
         },
         openSessionsModal() {
             this.showSessionsModal = true;

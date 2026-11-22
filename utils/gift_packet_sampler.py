@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _GIFT_PII_TAGS = {1, 7, 8, 10, 16, 18, 19, 32, 35}
 _GIFT_IMAGE_TAGS = {1, 15, 21}
 _HANDLED_METHODS = {
-    'WebcastChatMessage', 'WebcastGiftMessage', 'WebcastBindingGiftMessage',
+    'WebcastChatMessage', 'WebcastEmojiChatMessage', 'WebcastGiftMessage', 'WebcastBindingGiftMessage',
     'WebcastLikeMessage', 'WebcastRoomUserSeqMessage', 'WebcastControlMessage',
 }
 _METHOD_WORDS = ('gift', 'box', 'reward', 'aigc', 'magic', 'treasure', 'lottery', 'blind', 'chest')

@@ -49,13 +49,14 @@ def _vary(response):
     "/favicon.ico?v=2",
     "/level_img/test-icon.svg",
     "/fansclub_img/test-icon.svg",
+    "/emoji_img/test-icon.svg",
 ])
 def test_public_static_with_session_cookie_is_immutable(authed_client, app_module, monkeypatch, tmp_path, path):
     (tmp_path / "test-icon.svg").write_text("<svg/>")
     real_send = send_from_directory
 
     def send_icon(directory, filename, **kwargs):
-        if directory in ("data/level_img", "data/fansclub_img"):
+        if directory in ("data/level_img", "data/fansclub_img", "data/emoji_img"):
             directory = tmp_path
         return real_send(directory, filename, **kwargs)
 

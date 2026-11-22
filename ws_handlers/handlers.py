@@ -15,7 +15,18 @@ if TYPE_CHECKING:
     from services.room_manager import MonitoredRoom
 
 from crawler.fetcher import decompress_push_frame_payload
-from protobuf.douyin import BindingGiftMessage, PushFrame, Response, ChatMessage, GiftMessage, LikeMessage, RoomUserSeqMessage, ControlMessage
+from protobuf.douyin import (
+    BindingGiftMessage,
+    ChatMessage,
+    ControlMessage,
+    EmojiChatMessage,
+    GiftMessage,
+    LikeMessage,
+    PushFrame,
+    Response,
+    RoomUserSeqMessage,
+)
+from utils.emoji_helper import extract_chat_content_and_emojis, extract_emoji_chat_message
 from utils.logger import get_logger
 from utils.gift_packet_sampler import gift_packet_sampler
 from utils import gift_registry
@@ -206,6 +217,8 @@ class WebDouyinLiveFetcher:
                     try:
                         if method == 'WebcastChatMessage':
                             self._handle_chat_message(ChatMessage().parse(msg.payload))
+                        elif method == 'WebcastEmojiChatMessage':
+                            self._handle_emoji_chat_message(EmojiChatMessage().parse(msg.payload))
                         elif method == 'WebcastGiftMessage':
                             self._handle_gift_message(GiftMessage().parse(msg.payload),
                                                       raw_payload=msg.payload, source_method=method)
@@ -251,10 +264,10 @@ class WebDouyinLiveFetcher:
             'age_range': getattr(message_user, 'age_range', 0) or 0,
         }
 
-    def _handle_chat_message(self, chat_msg):
-        """保存弹幕并推送结构化文本，不在服务端拼接 HTML。"""
+    def _persist_and_emit_chat(self, user_proto, content: str, emoji_list=None):
+        """保存弹幕或表情消息并推送结构化文本，不在服务端拼接 HTML。"""
         self.last_chat_time = time.time()
-        fields = self._message_user_fields(chat_msg.user)
+        fields = self._message_user_fields(user_proto)
         data_service = self.monitored_room.manager.data_service
         with self.monitored_room.data_lock:
             is_gift_user = fields['user_id'] in self.monitored_room.gift_user_ids
@@ -265,7 +278,8 @@ class WebDouyinLiveFetcher:
                 user_id=fields['user_id'],
                 user_name=fields['user'],
                 user_level=fields['user_level'],
-                content=chat_msg.content,
+                content=content,
+                emoji_list=emoji_list,
                 is_gift_user=is_gift_user,
                 fans_club_level=fields['fans_club_level'],
             )
@@ -280,9 +294,23 @@ class WebDouyinLiveFetcher:
                                                'follower_count', 'following_count', 'age_range')},
             )
         self.socketio.emit(f'room_{self.live_id}', {
-            'type': 'chat', **fields, 'text': chat_msg.content, 'is_gift_user': is_gift_user,
+            'type': 'chat',
+            **fields,
+            'text': content,
+            'emoji_list': emoji_list,
+            'is_gift_user': is_gift_user,
         }, room=f'room_{self.live_id}')
         self._emit_room_stats_throttled()
+
+    def _handle_chat_message(self, chat_msg):
+        """处理普通及富文本弹幕消息。"""
+        content, emoji_list = extract_chat_content_and_emojis(chat_msg)
+        self._persist_and_emit_chat(chat_msg.user, content, emoji_list=emoji_list)
+
+    def _handle_emoji_chat_message(self, emoji_msg):
+        """处理独立贴纸/大表情弹幕消息。"""
+        content, emoji_list = extract_emoji_chat_message(emoji_msg)
+        self._persist_and_emit_chat(emoji_msg.user, content, emoji_list=emoji_list)
 
     def _cleanup_combo_gifts(self, now):
         """清理超过十分钟无新增量的连击，保留尾包状态以拒绝乱序重放。"""

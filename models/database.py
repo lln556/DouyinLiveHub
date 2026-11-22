@@ -63,6 +63,7 @@ class ChatMessage(Base):
     content = Column(Text, nullable=False, comment='弹幕内容')
     is_gift_user = Column(Boolean, nullable=False, default=False, comment='是否是送礼用户')
     fans_club_level = Column(Integer, nullable=True, default=0, comment='粉丝团等级')
+    emoji_list = Column(SQLAlchemyJSON, nullable=True, comment='富文本与专属表情元数据(JSON)')
     created_at = Column(DateTime, nullable=False, default=get_china_now, index=True, comment='创建时间')
 
     # 关系

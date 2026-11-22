@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import re
 import unicodedata
 from typing import List, Optional, Dict, Any
-from sqlalchemy import create_engine, and_, or_, func, text, update, select, tuple_, event
+from sqlalchemy import create_engine, and_, or_, func, text, update, select, tuple_, event, inspect as sa_inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import make_url
@@ -74,6 +74,19 @@ class DataService:
     def create_tables(self):
         """创建所有数据库表"""
         Base.metadata.create_all(bind=self.engine)
+        self._ensure_chat_emoji_column()
+
+    def _ensure_chat_emoji_column(self):
+        """幂等补充 chat_messages.emoji_list 列，兼容已建表的测试库与生产库。"""
+        inspector = sa_inspect(self.engine)
+        if 'chat_messages' not in inspector.get_table_names():
+            return
+        columns = {col['name'] for col in inspector.get_columns('chat_messages')}
+        if 'emoji_list' in columns:
+            return
+        col_type = 'JSON' if self.engine.dialect.name == 'sqlite' else 'JSON NULL'
+        with self.engine.begin() as conn:
+            conn.execute(text(f'ALTER TABLE chat_messages ADD COLUMN emoji_list {col_type}'))
 
     def drop_tables(self):
         """删除所有数据库表"""
@@ -549,6 +562,7 @@ class DataService:
                         user=msg.user_name, user_id=msg.user_id,
                         fans_club_level=msg.fans_club_level or 0,
                         text=msg.content if kind == 'chat' else None,
+                        emoji_list=msg.emoji_list if kind == 'chat' else None,
                         is_gift_user=bool(msg.is_gift_user) if kind == 'chat' else False,
                         gift_price=msg.gift_price if kind == 'gift' else None,
                         live_session_id=msg.live_session_id))
@@ -1178,6 +1192,7 @@ class DataService:
                     'user_level': msg.user_level,
                     'content': msg.content,
                     'text': msg.content,
+                    'emoji_list': msg.emoji_list,
                     'is_gift_user': bool(msg.is_gift_user),
                     'fans_club_level': msg.fans_club_level or 0,
                     'created_at': msg.created_at.isoformat() if msg.created_at else None
@@ -1838,6 +1853,7 @@ class DataService:
                             'nickname': msg.user_name,
                             'user_level': msg.user_level,
                             'content': msg.content,
+                            'emoji_list': msg.emoji_list,
                             'fans_club_level': msg.fans_club_level or 0,
                             'created_at': msg.created_at.isoformat() if msg.created_at else None
                         })
@@ -1853,6 +1869,7 @@ class DataService:
                             'nickname': msg.user_name,
                             'user_level': msg.user_level,
                             'content': msg.content,
+                            'emoji_list': msg.emoji_list,
                             'fans_club_level': msg.fans_club_level or 0,
                             'created_at': msg.created_at.isoformat() if msg.created_at else None
                         })

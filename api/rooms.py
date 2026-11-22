@@ -333,6 +333,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                         'user_level': msg.user_level,
                         'fans_club_level': msg.fans_club_level or 0,
                         'content': msg.content,
+                        'emoji_list': msg.emoji_list,
                         'is_gift_user': msg.is_gift_user,
                         'created_at': msg.created_at.isoformat() if msg.created_at else None
                     }

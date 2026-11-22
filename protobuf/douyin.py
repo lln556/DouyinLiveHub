@@ -68,6 +68,7 @@ class EmojiChatMessage(betterproto.Message):
     background_image: "Image" = betterproto.message_field(6)
     from_intercom: bool = betterproto.bool_field(7)
     intercom_hide_user_card: bool = betterproto.bool_field(8)
+    public_area_common: "PublicAreaCommon" = betterproto.message_field(9)
 
 
 @dataclass
@@ -94,6 +95,7 @@ class ChatMessage(betterproto.Message):
     chat_by: str = betterproto.string_field(20)
     individual_chat_priority: int = betterproto.uint32_field(21)
     rtf_content: "Text" = betterproto.message_field(22)
+    rtf_content_v2: "Text" = betterproto.message_field(23)
 
 
 @dataclass
@@ -351,7 +353,7 @@ class Text(betterproto.Message):
 
 @dataclass
 class TextPiece(betterproto.Message):
-    type: bool = betterproto.bool_field(1)
+    type: int = betterproto.uint32_field(1)
     format: "TextFormat" = betterproto.message_field(2)
     string_value: str = betterproto.string_field(3)
     user_value: "TextPieceUser" = betterproto.message_field(4)

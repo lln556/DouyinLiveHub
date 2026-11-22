@@ -819,7 +819,21 @@
                                               v-text="formatDisplayName(chat.nickname, chat.user_id)"></span>
                                         <span class="text-gray-400 text-xs" v-text="formatDateTime(chat.created_at)"></span>
                                     </div>
-                                    <div class="text-gray-700 mt-1 text-sm" v-text="chat.content"></div>
+                                    <div class="text-gray-700 mt-1 text-sm">
+                                        <template v-for="(seg, sIdx) in parseChatSegments(chat.content, chat.emoji_list)">
+                                            <img v-if="seg.type === 'emoji'"
+                                                 :key="sIdx"
+                                                 :src="seg.src"
+                                                 :alt="seg.alt"
+                                                 :title="seg.alt"
+                                                 :class="seg.sticker ? 'danmu-emoji-sticker' : 'danmu-emoji'"
+                                                 :referrerpolicy="seg.external ? 'no-referrer' : null"
+                                                 loading="lazy"
+                                                 decoding="async"
+                                                 @error="onEmojiError($event)">
+                                            <span v-else :key="sIdx" v-text="seg.text"></span>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1098,7 +1112,21 @@
                                 </div>
                                 <span class="text-gray-400 text-xs" v-text="formatUserMessageTime(msg.created_at)"></span>
                             </div>
-                            <div v-if="msg.type === 'chat'" class="text-gray-700 text-sm" v-text="msg.content"></div>
+                            <div v-if="msg.type === 'chat'" class="text-gray-700 text-sm">
+                                <template v-for="(seg, sIdx) in parseChatSegments(msg.content, msg.emoji_list)">
+                                    <img v-if="seg.type === 'emoji'"
+                                         :key="sIdx"
+                                         :src="seg.src"
+                                         :alt="seg.alt"
+                                         :title="seg.alt"
+                                         :class="seg.sticker ? 'danmu-emoji-sticker' : 'danmu-emoji'"
+                                         :referrerpolicy="seg.external ? 'no-referrer' : null"
+                                         loading="lazy"
+                                         decoding="async"
+                                         @error="onEmojiError($event)">
+                                    <span v-else :key="sIdx" v-text="seg.text"></span>
+                                </template>
+                            </div>
                             <div v-else class="text-gray-700 text-sm">
                                 送出 <span class="font-semibold text-pink-600" v-text="msg.gift_name"></span>
                                 <span class="text-gray-500" v-text="' x' + msg.gift_count"></span>
@@ -1136,6 +1164,7 @@
     </div>
 
     <script src="/static/vendor/echarts.min.js?v={{ asset_v('vendor/echarts.min.js') }}" async data-echarts-script="1" onload="this.dataset.loaded='1'" onerror="this.dataset.failed='1'"></script>
+    <script src="/static/js/emoji-map.js?v={{ asset_v('js/emoji-map.js') }}"></script>
     <script src="/static/js/ui-kit.js?v={{ asset_v('js/ui-kit.js') }}"></script>
     <script src="/static/js/stats.js?v={{ asset_v('js/stats.js') }}"></script>
 </body>

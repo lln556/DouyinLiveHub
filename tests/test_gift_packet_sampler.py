@@ -460,8 +460,8 @@ def test_unhandled_websocket_methods_scrub_common_and_media(accounting_context, 
     assert '私密观众' not in json.dumps(record, ensure_ascii=False)
 
 
-@pytest.mark.parametrize('method', ['', 'WebcastMemberMessage', 'WebcastChatMessage', 'WebcastGiftMessage',
-                                  'WebcastBindingGiftMessage', 'WebcastLikeMessage',
+@pytest.mark.parametrize('method', ['', 'WebcastMemberMessage', 'WebcastChatMessage', 'WebcastEmojiChatMessage',
+                                  'WebcastGiftMessage', 'WebcastBindingGiftMessage', 'WebcastLikeMessage',
                                   'WebcastRoomUserSeqMessage', 'WebcastControlMessage'])
 def test_unhandled_sampler_ignores_non_gift_and_known_methods(sampler, tmp_path, method):
     sampler.sample_unhandled_method(method, field(2, 9, 0))

@@ -481,7 +481,7 @@
                                       :data-user-name="msg.user"
                                       @click="onStreamUserClick(msg)"
                                       title="点击查看该观众在本场的发言与送礼记录"
-                                      v-text="formatDisplayName(msg.user, '匿名用户')"></span><span v-if="msg.type === 'chat'">: </span><span v-else> </span><span v-text="formatMessageBody(msg)"></span>
+                                      v-text="formatDisplayName(msg.user, '匿名用户')"></span><span v-if="msg.type === 'chat'">: </span><span v-else> </span><template v-if="msg.type === 'chat'"><template v-for="(seg, sIdx) in formatChatSegments(msg)"><img v-if="seg.type === 'emoji'" :key="sIdx" :src="seg.src" :alt="seg.alt" :title="seg.alt" :class="seg.sticker ? 'danmu-emoji-sticker' : 'danmu-emoji'" :referrerpolicy="seg.external ? 'no-referrer' : null" loading="lazy" decoding="async" @error="onEmojiError($event)"><span v-else :key="sIdx" v-text="seg.text"></span></template></template><span v-else v-text="formatMessageBody(msg)"></span>
                             </div>
                         </div>
 
@@ -769,7 +769,21 @@
                                 </div>
                                 <span class="text-gray-400 text-xs" v-text="formatUserMessageTime(msg.created_at)"></span>
                             </div>
-                            <div v-if="msg.type === 'chat'" class="text-gray-700 text-sm" v-text="msg.content"></div>
+                            <div v-if="msg.type === 'chat'" class="text-gray-700 text-sm">
+                                <template v-for="(seg, sIdx) in parseChatSegments(msg.content, msg.emoji_list)">
+                                    <img v-if="seg.type === 'emoji'"
+                                         :key="sIdx"
+                                         :src="seg.src"
+                                         :alt="seg.alt"
+                                         :title="seg.alt"
+                                         :class="seg.sticker ? 'danmu-emoji-sticker' : 'danmu-emoji'"
+                                         :referrerpolicy="seg.external ? 'no-referrer' : null"
+                                         loading="lazy"
+                                         decoding="async"
+                                         @error="onEmojiError($event)">
+                                    <span v-else :key="sIdx" v-text="seg.text"></span>
+                                </template>
+                            </div>
                             <div v-else class="text-gray-700 text-sm">
                                 送出 <span class="font-semibold text-pink-600" v-text="msg.gift_name"></span>
                                 <span class="text-gray-500" v-text="' x' + msg.gift_count"></span>
@@ -858,6 +872,7 @@
         </div>
     </div>
 
+    <script src="/static/js/emoji-map.js?v={{ asset_v('js/emoji-map.js') }}"></script>
     <script src="/static/js/ui-kit.js?v={{ asset_v('js/ui-kit.js') }}"></script>
     <script src="/static/js/room.js?v={{ asset_v('js/room.js') }}"></script>
 </body>

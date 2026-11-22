@@ -1207,6 +1207,12 @@ const app = new Vue({
         },
         formatAvatarInitial(name, fallbackId = 'U') {
             return window.HubUI.formatAvatarInitial(name, fallbackId);
+        },
+        parseChatSegments(text, emojiList) {
+            return window.HubUI.parseChatSegments(text, emojiList);
+        },
+        onEmojiError(event) {
+            window.HubUI.handleEmojiError(event);
         }
     }
 });

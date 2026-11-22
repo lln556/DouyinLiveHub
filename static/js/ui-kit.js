@@ -310,6 +310,128 @@
         return source.substring(0, 1) || 'U';
     }
 
+    const ALLOWED_EMOJI_HOSTS = [
+        'douyinpic.com',
+        'byteimg.com',
+        'bytescm.com',
+        'ibytedtos.com',
+        'bdurl.net',
+        'pstatp.com',
+        'snssdk.com',
+        'zijieapi.com'
+    ];
+    const SAFE_LOCAL_EMOJI_FILE_RE = /^[A-Za-z0-9_-]+\.(?:webp|png|gif|jpg|svg)$/;
+    const EMOJI_TOKEN_RE = /(\[[^\[\]\r\n]{1,16}\])/g;
+
+    function isSafeEmojiUrl(url) {
+        if (typeof url !== 'string' || !url || url.length > 1000) return false;
+        if (/[\s<>"']/.test(url)) return false;
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+                return false;
+            }
+            const host = (parsed.hostname || '').toLowerCase().replace(/\.+$/, '');
+            if (!host) return false;
+            return ALLOWED_EMOJI_HOSTS.some((domain) => host === domain || host.endsWith('.' + domain));
+        } catch (err) {
+            return false;
+        }
+    }
+
+    function parseChatSegments(rawText, emojiList) {
+        const text = rawText === null || rawText === undefined ? '' : String(rawText);
+        const localMap = (global.DOUYIN_EMOJI_MAP && typeof global.DOUYIN_EMOJI_MAP === 'object')
+            ? global.DOUYIN_EMOJI_MAP
+            : {};
+
+        const customMap = Object.create(null);
+        const customEntries = [];
+        if (Array.isArray(emojiList)) {
+            for (let i = 0; i < emojiList.length; i++) {
+                const item = emojiList[i];
+                if (!item || typeof item !== 'object') continue;
+                const alt = typeof item.alt === 'string' ? item.alt : '';
+                if (!alt || !isSafeEmojiUrl(item.url)) continue;
+                if (!Object.prototype.hasOwnProperty.call(customMap, alt)) {
+                    const entry = {
+                        alt,
+                        url: item.url,
+                        sticker: Boolean(item.sticker),
+                        used: false
+                    };
+                    customMap[alt] = entry;
+                    customEntries.push(entry);
+                }
+            }
+        }
+
+        const segments = [];
+        const pushText = (chunk) => {
+            if (!chunk) return;
+            const prev = segments.length > 0 ? segments[segments.length - 1] : null;
+            if (prev && prev.type === 'text') {
+                prev.text += chunk;
+            } else {
+                segments.push({ type: 'text', text: chunk });
+            }
+        };
+
+        if (text) {
+            const parts = text.split(EMOJI_TOKEN_RE);
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (!part) continue;
+                if (Object.prototype.hasOwnProperty.call(customMap, part)) {
+                    const custom = customMap[part];
+                    custom.used = true;
+                    segments.push({
+                        type: 'emoji',
+                        alt: part,
+                        src: custom.url,
+                        sticker: custom.sticker,
+                        external: true
+                    });
+                } else if (
+                    Object.prototype.hasOwnProperty.call(localMap, part) &&
+                    SAFE_LOCAL_EMOJI_FILE_RE.test(localMap[part])
+                ) {
+                    segments.push({
+                        type: 'emoji',
+                        alt: part,
+                        src: '/emoji_img/' + localMap[part],
+                        sticker: false,
+                        external: false
+                    });
+                } else {
+                    pushText(part);
+                }
+            }
+        }
+
+        for (let i = 0; i < customEntries.length; i++) {
+            const entry = customEntries[i];
+            if (!entry.used) {
+                segments.push({
+                    type: 'emoji',
+                    alt: entry.alt,
+                    src: entry.url,
+                    sticker: entry.sticker,
+                    external: true
+                });
+            }
+        }
+
+        return segments;
+    }
+
+    function handleEmojiError(event) {
+        const img = event && event.target;
+        if (!img || !img.parentNode) return;
+        const alt = img.getAttribute('alt') || '';
+        img.parentNode.replaceChild(document.createTextNode(alt), img);
+    }
+
     global.HubUI = {
         toast,
         confirm,
@@ -318,6 +440,9 @@
         isBlankNickname,
         isBlankSearchInput,
         formatDisplayName,
-        formatAvatarInitial
+        formatAvatarInitial,
+        isSafeEmojiUrl,
+        parseChatSegments,
+        handleEmojiError
     };
 })(window);

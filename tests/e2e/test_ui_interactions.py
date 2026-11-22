@@ -715,4 +715,181 @@ def test_blank_nickname_search_douyin_id_display_and_studio_icon(authed_page, ba
     assert "抖音号: mock_dy_blank" in authed_page.locator("form .absolute").last.inner_text()
 
 
+def test_emoji_rendering_and_fallback_across_pages(authed_page, base_url, factories):
+    """官方表情、富文本/贴纸表情正常渲染，非法 URL 被拦截，图片加载失败时优雅降级为文本。"""
+    from pathlib import Path
+
+    factories.room(live_id="e2e_emoji_01", anchor_name="表情E2E主播")
+
+    valid_webp = (Path(__file__).resolve().parents[2] / "data" / "emoji_img" / "weixiao.webp").read_bytes()
+    evil_requests = []
+
+    def handle_douyinpic(route):
+        url = route.request.url
+        if "broken.png" in url:
+            route.fulfill(status=404, body=b"not found")
+        else:
+            route.fulfill(status=200, content_type="image/webp", body=valid_webp)
+
+    def handle_evil(route):
+        evil_requests.append(route.request.url)
+        route.abort()
+
+    authed_page.route("https://*.douyinpic.com/**", handle_douyinpic)
+    authed_page.route("http://evil.example/**", handle_evil)
+    authed_page.route("https://douyinpic.com.evil.com/**", handle_evil)
+
+    authed_page.route(
+        "**/api/rooms/e2e_emoji_01/user-messages*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "user": {"user_id": "u_em_1", "nickname": "表情观众"},
+                    "stats": {
+                        "total_messages": 1,
+                        "chat_count": 1,
+                        "gift_count": 0,
+                        "like_count": 0,
+                        "total_value": 0,
+                    },
+                    "messages": [
+                        {
+                            "id": 1001,
+                            "type": "chat",
+                            "user_id": "u_em_1",
+                            "nickname": "表情观众",
+                            "content": "弹窗[微笑][专属]",
+                            "emoji_list": [
+                                {"alt": "[专属]", "url": "https://p3-webcast.douyinpic.com/img/modal.png"}
+                            ],
+                            "created_at": "2026-11-22T20:00:00",
+                        }
+                    ],
+                    "pagination": {"page": 1, "page_size": 50, "total": 1, "total_pages": 1},
+                }
+            ),
+        ),
+    )
+
+    page_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+
+    authed_page.goto(f"{base_url}/room/e2e_emoji_01", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+
+    emoji_resp = authed_page.request.get(f"{base_url}/emoji_img/weixiao.webp")
+    assert emoji_resp.status == 200
+
+    authed_page.evaluate(
+        """() => {
+            const vm = document.querySelector('#app').__vue__;
+            vm.handleMessage({
+                type: 'chat',
+                user_id: 'u_em_1',
+                user: '表情观众',
+                text: '太棒了[微笑][比心][粉丝牌][坏链接][失灵]',
+                emoji_list: [
+                    { alt: '[粉丝牌]', url: 'https://p3-webcast.douyinpic.com/img/badge.png' },
+                    { alt: '[坏链接]', url: 'http://evil.example/x.png' },
+                    { alt: '[坏链接]', url: 'javascript:alert(1)' },
+                    { alt: '[失灵]', url: 'https://p3-webcast.douyinpic.com/img/broken.png' }
+                ]
+            });
+            vm.handleMessage({
+                type: 'chat',
+                user_id: 'u_em_2',
+                user: '贴纸观众',
+                text: '[大贴纸]',
+                emoji_list: [
+                    { alt: '[大贴纸]', url: 'https://p3-webcast.douyinpic.com/img/sticker.png', sticker: true }
+                ]
+            });
+        }"""
+    )
+
+    authed_page.wait_for_function(
+        "() => document.querySelectorAll('.messages-container img.danmu-emoji, .messages-container img.danmu-emoji-sticker').length === 4"
+    )
+    # 等待 broken.png 触发 @error 降级为文本节点 [失灵] 且其余 4 张图片加载成功
+    authed_page.wait_for_function(
+        """() => {
+            const box = document.querySelector('.messages-container');
+            if (!box || !box.innerText.includes('[失灵]') || box.querySelector('img[src*="broken.png"]')) {
+                return false;
+            }
+            const imgs = Array.from(box.querySelectorAll('img.danmu-emoji, img.danmu-emoji-sticker'));
+            return imgs.length === 4 && imgs.every(el => el.complete && el.naturalWidth > 0);
+        }"""
+    )
+
+    srcs = authed_page.evaluate(
+        """() => Array.from(document.querySelectorAll('.messages-container img.danmu-emoji, .messages-container img.danmu-emoji-sticker'))
+            .map(el => ({
+                src: el.getAttribute('src'),
+                alt: el.getAttribute('alt'),
+                cls: el.getAttribute('class'),
+                ref: el.getAttribute('referrerpolicy')
+            }))"""
+    )
+    assert any(item["src"].startswith("/emoji_img/") and item["alt"] == "[微笑]" and item["ref"] is None for item in srcs)
+    assert any(item["src"].startswith("/emoji_img/") and item["alt"] == "[比心]" for item in srcs)
+    assert any(item["src"] == "https://p3-webcast.douyinpic.com/img/badge.png" and item["ref"] == "no-referrer" for item in srcs)
+    assert any(item["src"] == "https://p3-webcast.douyinpic.com/img/sticker.png" and item["cls"] == "danmu-emoji-sticker" and item["ref"] == "no-referrer" for item in srcs)
+    assert "http://evil.example/x.png" not in [item["src"] for item in srcs]
+    assert "javascript:alert(1)" not in [item["src"] for item in srcs]
+    assert evil_requests == []
+    assert "[坏链接]" in authed_page.locator(".messages-container").inner_text()
+
+    # 点击用户打开弹窗验证弹窗内表情渲染
+    authed_page.locator(".messages-container .user-highlight").first.click()
+    authed_page.wait_for_function(
+        "() => document.querySelector('.user-modal-content img.danmu-emoji') !== null"
+    )
+    modal_imgs = authed_page.evaluate(
+        "() => Array.from(document.querySelectorAll('.user-modal-content img.danmu-emoji')).map(el => el.getAttribute('src'))"
+    )
+    assert any(s.startswith("/emoji_img/") for s in modal_imgs)
+    assert "https://p3-webcast.douyinpic.com/img/modal.png" in modal_imgs
+
+    # 统计页场次明细与弹窗表情渲染
+    authed_page.route(
+        "**/api/rooms/sessions/888*",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "session": {"id": 888, "live_id": "e2e_emoji_01", "start_time": "2026-11-22T19:00:00", "status": "ended", "total_income": 0, "total_gift_count": 0, "total_chat_count": 1},
+                    "counts": {"chat_count": 1, "gift_count": 0},
+                    "chats": [
+                        {
+                            "id": 2001,
+                            "user_id": "u_em_1",
+                            "nickname": "表情观众",
+                            "content": "统计页[微笑][专属]",
+                            "emoji_list": [{"alt": "[专属]", "url": "https://p3-webcast.douyinpic.com/img/stats.png"}],
+                            "created_at": "2026-11-22T19:05:00",
+                        }
+                    ],
+                }
+            ),
+        ),
+    )
+    authed_page.goto(f"{base_url}/stats?live_id=e2e_emoji_01&range=total", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+    authed_page.evaluate("() => document.querySelector('#app').__vue__.viewSessionDetail({ id: 888 })")
+    authed_page.wait_for_function(
+        "() => document.querySelectorAll('img.danmu-emoji').length >= 2"
+    )
+    stats_srcs = authed_page.evaluate(
+        "() => Array.from(document.querySelectorAll('img.danmu-emoji')).map(el => el.getAttribute('src'))"
+    )
+    assert any(s.startswith("/emoji_img/") for s in stats_srcs)
+    assert "https://p3-webcast.douyinpic.com/img/stats.png" in stats_srcs
+    assert page_errors == []
+
+
+
 
