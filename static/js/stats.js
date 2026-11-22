@@ -123,19 +123,14 @@ const app = new Vue({
         const paramRange = (urlParams.get('range') || '').trim();
         const paramSessionId = (urlParams.get('session_id') || '').trim();
 
-        await Promise.all([
-            this.loadRooms(),
-            paramLiveId ? Promise.resolve() : this.loadDateRange()
-        ]);
         if (paramLiveId) {
             this.selectedRoomId = paramLiveId;
-            await this.loadRoomDateRange();
         }
         if (['7days', '30days', 'month', 'year', 'total', 'custom'].includes(paramRange)) {
             this.timeRange = paramRange;
         }
-        this.initCustomDates();
         this.initPeriodDefaults();
+
         this._trendChartResizeHandler = () => this.resizeTrendChart();
         window.addEventListener('resize', this._trendChartResizeHandler);
         this._keydownHandler = (event) => {
@@ -149,7 +144,16 @@ const app = new Vue({
             }
         };
         document.addEventListener('keydown', this._keydownHandler);
-        await this.loadData();
+
+        const rangePromise = (paramLiveId ? this.loadRoomDateRange() : this.loadDateRange()).then(() => {
+            this.initCustomDates();
+        });
+        if (['7days', '30days', 'month', 'year'].includes(this.timeRange)) {
+            await Promise.all([this.loadRooms(), rangePromise, this.loadData()]);
+        } else {
+            await Promise.all([this.loadRooms(), rangePromise]);
+            await this.loadData();
+        }
         const parsedSessionId = Number(paramSessionId);
         if (Number.isInteger(parsedSessionId) && parsedSessionId > 0) {
             await this.viewSessionDetail({ id: parsedSessionId });
@@ -298,6 +302,24 @@ const app = new Vue({
                 return;
             }
             if (!window.echarts) {
+                const scriptEl = document.querySelector('script[data-echarts-script]');
+                if (scriptEl && scriptEl.dataset.failed !== '1') {
+                    if (!scriptEl._hubBoundChart) {
+                        scriptEl._hubBoundChart = true;
+                        scriptEl.addEventListener('load', () => {
+                            if (!this._isDestroyed) {
+                                this.renderTrendChart();
+                            }
+                        }, { once: true });
+                        scriptEl.addEventListener('error', () => {
+                            scriptEl.dataset.failed = '1';
+                            if (!this._isDestroyed) {
+                                this.chartRenderError = '图表组件加载失败';
+                            }
+                        }, { once: true });
+                    }
+                    return;
+                }
                 this.chartRenderError = '图表组件加载失败';
                 return;
             }
@@ -589,36 +611,35 @@ const app = new Vue({
             });
 
             try {
-                // 加载统计数据
+                // 并发加载统计数据、贡献榜首页和（选中房间时的）场次列表
                 const statsUrl = this.selectedRoomId
                     ? `/api/rooms/${encodeURIComponent(this.selectedRoomId)}/sessions/stats?${params}`
                     : `/api/rooms/sessions/stats?${params}`;
+                const sessionsUrl = this.selectedRoomId
+                    ? `/api/rooms/${encodeURIComponent(this.selectedRoomId)}/sessions?${params}`
+                    : null;
 
-                const statsResponse = await fetch(statsUrl);
-                const statsData = await statsResponse.json();
+                const statsPromise = fetch(statsUrl).then(r => r.json());
+                const contributorsPromise = this.loadContributors(1, { requestSeq });
+                const sessionsPromise = sessionsUrl
+                    ? fetch(sessionsUrl).then(r => r.json())
+                    : Promise.resolve(null);
+
+                const [statsData, , sessionsData] = await Promise.all([
+                    statsPromise,
+                    contributorsPromise,
+                    sessionsPromise
+                ]);
                 if (requestSeq !== this.loadRequestSeq) {
                     return;
                 }
-                if (statsData.stats) {
+                if (statsData && statsData.stats) {
                     this.stats = statsData.stats;
                     this.normalizeChartMetric();
                 }
 
-                // 加载贡献榜数据（第一页）
-                await this.loadContributors(1);
-                if (requestSeq !== this.loadRequestSeq) {
-                    return;
-                }
-
-                // 如果选择了房间，加载场次列表
-                if (this.selectedRoomId) {
-                    const sessionsUrl = `/api/rooms/${encodeURIComponent(this.selectedRoomId)}/sessions?${params}`;
-                    const sessionsResponse = await fetch(sessionsUrl);
-                    const sessionsData = await sessionsResponse.json();
-                    if (requestSeq !== this.loadRequestSeq) {
-                        return;
-                    }
-                    if (sessionsData.sessions) {
+                if (sessionsUrl) {
+                    if (sessionsData && sessionsData.sessions) {
                         this.sessions = sessionsData.sessions;
                     }
                 } else {
@@ -638,7 +659,7 @@ const app = new Vue({
                 }
             }
         },
-        async loadContributors(page = 1) {
+        async loadContributors(page = 1, options = {}) {
             const dateRange = this.getDateRange();
             if (!dateRange) {
                 return;
@@ -661,6 +682,9 @@ const app = new Vue({
             try {
                 const response = await fetch(`/api/rooms/contributors-by-date?${params}`);
                 const data = await response.json();
+                if (options.requestSeq && options.requestSeq !== this.loadRequestSeq) {
+                    return;
+                }
 
                 if (data.contributors) {
                     this.contributors = data.contributors;

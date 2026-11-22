@@ -3,6 +3,7 @@
 支持多直播间24小时监控、数据持久化存储
 """
 import os
+import gzip
 import hashlib
 import ipaddress
 import re
@@ -13,12 +14,15 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlparse
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
+from flask.sessions import SecureCookieSessionInterface
 from flask_socketio import SocketIO, emit, join_room
 from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.engine import make_url
+from werkzeug.wsgi import FileWrapper
 
 import config
 from models.database import Base, get_china_now
@@ -37,16 +41,142 @@ _env_write_lock = threading.Lock()
 _login_failure_lock = threading.Lock()
 _login_failures = {}
 _scheduler_jobs_lock = threading.Lock()
+_asset_version_lock = threading.Lock()
+_asset_version_cache = {}
+_gzip_cache_lock = threading.Lock()
+_gzip_cache = {}
 _shutdown_lock = threading.Lock()
 _shutdown_complete = False
 
+_PUBLIC_STATIC_ENDPOINTS = {'static', 'favicon', 'serve_level_img', 'serve_fansclub_img'}
+
+
+class _PublicStaticSessionInterface(SecureCookieSessionInterface):
+    def save_session(self, app, session, response):
+        # Flask saves sessions after after_request; permanent cookie refresh
+        # would otherwise add Set-Cookie and Vary: Cookie to public assets.
+        if request.endpoint in _PUBLIC_STATIC_ENDPOINTS:
+            return
+        super().save_session(app, session, response)
+
+
 # 创建Flask应用
 app = Flask(__name__)
+app.session_interface = _PublicStaticSessionInterface()
 app.config['SECRET_KEY'] = config.SECRET_KEY
 app.config['SESSION_COOKIE_HTTPONLY'] = config.SESSION_COOKIE_HTTPONLY
 app.config['SESSION_COOKIE_SAMESITE'] = config.SESSION_COOKIE_SAMESITE
 app.config['SESSION_COOKIE_SECURE'] = config.SESSION_COOKIE_SECURE
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=config.AUTH_SESSION_DAYS)
+
+
+def asset_v(rel_path: str) -> str:
+    """Return a cached content fingerprint for files strictly inside static."""
+    try:
+        static_root = Path(app.static_folder).resolve()
+        resolved_path = (static_root / rel_path).resolve()
+        if resolved_path == static_root or not resolved_path.is_relative_to(static_root):
+            return '1'
+        stat = resolved_path.stat()
+        key = (resolved_path, stat.st_mtime_ns, stat.st_size)
+        with _asset_version_lock:
+            if key not in _asset_version_cache:
+                version = hashlib.md5(resolved_path.read_bytes()).hexdigest()[:8]
+                if len(_asset_version_cache) >= 128:
+                    _asset_version_cache.pop(next(iter(_asset_version_cache)))
+                _asset_version_cache[key] = version
+            return _asset_version_cache[key]
+    except (OSError, ValueError):
+        return '1'
+
+
+@app.context_processor
+def inject_asset_version():
+    return {'asset_v': asset_v}
+
+
+def _accepts_gzip(header_value: str) -> bool:
+    """An explicit gzip quality takes precedence over the wildcard."""
+    qualities = {}
+    for item in header_value.lower().split(','):
+        encoding, *parameters = item.split(';')
+        encoding = encoding.strip()
+        if encoding not in {'gzip', '*'}:
+            continue
+        quality = 1.0
+        for parameter in parameters:
+            name, _, value = parameter.partition('=')
+            if name.strip() == 'q':
+                try:
+                    quality = float(value.strip())
+                except ValueError:
+                    quality = 0.0
+                if not 0 <= quality <= 1:
+                    quality = 0.0
+        qualities[encoding] = quality
+    return qualities.get('gzip', qualities.get('*', 0.0)) > 0
+
+
+@app.after_request
+def optimize_response_headers_and_compress(response):
+    if request.endpoint in _PUBLIC_STATIC_ENDPOINTS and response.status_code in (200, 304):
+        response.vary.discard('Cookie')
+        response.vary.discard('cookie')
+        if 'v' in request.args or request.path.startswith(('/static/vendor/', '/level_img/', '/fansclub_img/')):
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        else:
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+
+    mimetype = response.mimetype or ''
+    compressible = (mimetype in {'application/json', 'application/javascript', 'text/javascript', 'image/svg+xml'}
+                    or mimetype.startswith('text/'))
+    if (request.method in ('GET', 'HEAD') and compressible
+            and (200 <= response.status_code < 300 or response.status_code == 304)):
+        response.vary.add('Accept-Encoding')
+
+    if (request.method != 'GET' or response.status_code != 200 or not compressible
+            or 'Content-Encoding' in response.headers
+            or not _accepts_gzip(request.headers.get('Accept-Encoding', ''))):
+        return response
+
+    if response.direct_passthrough:
+        length = response.content_length
+        if length is None or not 512 <= length <= 10 * 1024 * 1024:
+            return response
+        # send_file uses an iterable FileWrapper. Buffer only bounded files;
+        # arbitrary streaming generators must remain lazy.
+        if response.is_streamed and not isinstance(response.response, FileWrapper):
+            return response
+        response.direct_passthrough = False
+        response.make_sequence()
+    if response.is_streamed:
+        return response
+
+    raw = response.get_data()
+    if len(raw) < 512:
+        return response
+
+    if request.endpoint in {'static', 'favicon'}:
+        key = (request.path, response.headers.get('ETag', ''), len(raw))
+        with _gzip_cache_lock:
+            if key not in _gzip_cache:
+                compressed = gzip.compress(raw, compresslevel=6)
+                if len(_gzip_cache) >= 64:
+                    _gzip_cache.pop(next(iter(_gzip_cache)))
+                _gzip_cache[key] = compressed
+            compressed = _gzip_cache[key]
+    else:
+        compressed = gzip.compress(raw, compresslevel=6)
+
+    if len(compressed) < len(raw):
+        response.set_data(compressed)
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['Content-Length'] = str(len(compressed))
+        etag = response.headers.get('ETag')
+        if etag and not etag.startswith('W/'):
+            response.headers['ETag'] = f'W/{etag}'
+    return response
+
 
 # 创建Socket.IO实例
 socketio = SocketIO(
@@ -578,6 +708,9 @@ def initialize():
                 return jsonify({'error': '请求来源不匹配'}), 403
 
     if request.endpoint == 'healthz':
+        return None
+
+    if request.endpoint in _PUBLIC_STATIC_ENDPOINTS:
         return None
 
     if not config.AUTH_REQUIRED or is_authenticated():

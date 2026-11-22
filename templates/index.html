@@ -6,9 +6,9 @@
     <title>抖音直播记录站</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico?v=2">
-    <script src="/static/vendor/vue.min.js"></script>
-    <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-    <link href="/static/css/app-ui.css" rel="stylesheet">
+    <script src="/static/vendor/vue.min.js?v={{ asset_v('vendor/vue.min.js') }}"></script>
+    <link href="/static/vendor/tailwind.min.css?v={{ asset_v('vendor/tailwind.min.css') }}" rel="stylesheet">
+    <link href="/static/css/app-ui.css?v={{ asset_v('css/app-ui.css') }}" rel="stylesheet">
     <style>
         .desktop-table {
             width: 100%;
@@ -546,7 +546,7 @@
         </div>
     </div>
 
-    <script src="/static/js/ui-kit.js"></script>
-    <script src="/static/js/index.js"></script>
+    <script src="/static/js/ui-kit.js?v={{ asset_v('js/ui-kit.js') }}"></script>
+    <script src="/static/js/index.js?v={{ asset_v('js/index.js') }}"></script>
 </body>
 </html>

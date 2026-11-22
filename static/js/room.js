@@ -282,6 +282,7 @@ const app = new Vue({
         async loadRoomInfo(options = {}) {
             const reqSeq = ++this._roomInfoSeq;
             const wsVersionBefore = this._wsStatsVersion;
+            const historyPromise = options.loadHistory !== false ? this.loadHistorySessions() : Promise.resolve();
             try {
                 const response = await fetch(`/api/rooms/${encodeURIComponent(this.liveId)}`);
                 const data = await response.json();
@@ -304,10 +305,6 @@ const app = new Vue({
                         }
                     }
                 }
-
-                if (options.loadHistory !== false) {
-                    await this.loadHistorySessions();
-                }
             } catch (error) {
                 console.error('加载房间信息失败:', error);
             } finally {
@@ -315,6 +312,7 @@ const app = new Vue({
                     this.loading = false;
                 }
             }
+            await historyPromise;
         },
         async loadCurrentSession() {
             if (this._sessionSyncInFlight) return;
@@ -621,7 +619,7 @@ const app = new Vue({
                 return;
             }
 
-            this.socket = io();
+            this.socket = io({ transports: ['websocket', 'polling'] });
 
             this.socket.on('connect', () => {
                 this.socket.emit('join', { live_id: this.liveId });

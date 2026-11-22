@@ -6,9 +6,9 @@
     <title>直播数据统计</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico?v=2">
-    <script src="/static/vendor/vue.min.js"></script>
-    <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-    <link href="/static/css/app-ui.css" rel="stylesheet">
+    <script src="/static/vendor/vue.min.js?v={{ asset_v('vendor/vue.min.js') }}"></script>
+    <link href="/static/vendor/tailwind.min.css?v={{ asset_v('vendor/tailwind.min.css') }}" rel="stylesheet">
+    <link href="/static/css/app-ui.css?v={{ asset_v('css/app-ui.css') }}" rel="stylesheet">
     <style>
         [v-cloak] {
             display: none !important;
@@ -579,8 +579,8 @@
                                                 <div class="text-sm font-medium text-gray-900 truncate clickable-user"
                                                      @click="openUserMessagesModal(contributor.user_id, contributor.nickname || contributor.user_id, { live_id: contributor.live_id })"
                                                      v-text="formatDisplayName(contributor.nickname, contributor.user_id)"></div>
-                                                <img v-if="contributor.user_level" :src="'/level_img/level_' + contributor.user_level + '.png'" style="height: 18px; object-fit: contain;">
-                                                <img v-if="contributor.fans_club_level" :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
+                                                <img v-if="contributor.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + contributor.user_level + '.png'" style="height: 18px; object-fit: contain;">
+                                                <img v-if="contributor.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                             </div>
                                         </div>
                                     </td>
@@ -618,7 +618,7 @@
                                         <span class="font-bold text-red-600 hub-num" v-text="formatNumber(liker.like_count)"></span>
                                     </td>
                                     <td class="px-3 py-2.5 whitespace-nowrap text-right">
-                                        <img v-if="liker.fans_club_level" :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'" style="height: 18px; object-fit: contain; display: inline-block;">
+                                        <img v-if="liker.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'" style="height: 18px; object-fit: contain; display: inline-block;">
                                         <span v-else class="text-gray-400 text-xs">-</span>
                                     </td>
                                 </tr>
@@ -812,8 +812,8 @@
                             <div v-else class="space-y-2">
                                 <div v-for="chat in sessionDetailChats" :key="chat.id" class="bg-gray-50 rounded p-3">
                                     <div class="flex items-center gap-2">
-                                        <img v-if="chat.user_level" :src="'/level_img/level_' + chat.user_level + '.png'" style="width: 24px; height: 24px; object-fit: contain;">
-                                        <img v-if="chat.fans_club_level" :src="'/fansclub_img/fansclub_' + chat.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
+                                        <img v-if="chat.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + chat.user_level + '.png'" style="width: 24px; height: 24px; object-fit: contain;">
+                                        <img v-if="chat.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + chat.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                         <span class="font-medium text-blue-600 text-sm clickable-user"
                                               @click="openUserMessagesModal(chat.user_id, chat.nickname || chat.user_id, { session_id: sessionDetail.id, live_id: selectedRoomId })"
                                               v-text="formatDisplayName(chat.nickname, chat.user_id)"></span>
@@ -865,8 +865,8 @@
                                 <div v-for="gift in sessionDetailGifts" :key="gift.id" class="bg-yellow-50 rounded p-3">
                                     <div class="flex items-center justify-between">
                                         <div class="flex items-center gap-2">
-                                            <img v-if="gift.user_level" :src="'/level_img/level_' + gift.user_level + '.png'" style="width: 24px; height: 24px; object-fit: contain;">
-                                            <img v-if="gift.fans_club_level" :src="'/fansclub_img/fansclub_' + gift.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
+                                            <img v-if="gift.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + gift.user_level + '.png'" style="width: 24px; height: 24px; object-fit: contain;">
+                                            <img v-if="gift.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + gift.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                             <span class="font-medium text-blue-600 text-sm clickable-user"
                                                   @click="openUserMessagesModal(gift.user_id, gift.nickname || gift.user_id, { session_id: sessionDetail.id, live_id: selectedRoomId })"
                                                   v-text="formatDisplayName(gift.nickname, gift.user_id)"></span>
@@ -946,8 +946,8 @@
                                                 <span class="font-medium text-blue-600 text-sm clickable-user"
                                                       @click="openUserMessagesModal(contributor.user_id, contributor.nickname || contributor.user_id, { session_id: sessionDetail.id, live_id: selectedRoomId })"
                                                       v-text="formatDisplayName(contributor.nickname, contributor.user_id)"></span>
-                                                <img v-if="contributor.user_level" :src="'/level_img/level_' + contributor.user_level + '.png'" style="height: 18px; object-fit: contain;">
-                                                <img v-if="contributor.fans_club_level" :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
+                                                <img v-if="contributor.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + contributor.user_level + '.png'" style="height: 18px; object-fit: contain;">
+                                                <img v-if="contributor.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'" style="height: 18px; object-fit: contain;">
                                             </div>
                                         </td>
                                         <td class="px-4 py-2 text-right text-sm" v-text="contributor.gift_count || 0"></td>
@@ -981,9 +981,11 @@
                                 <h2 class="text-xl font-bold text-gray-900 flex items-center">
                                     <span v-text="formatDisplayName(userMessagesData.user.nickname, userMessagesData.user.user_id)"></span>
                                     <img v-if="userMessagesData.user.level"
+                                         loading="lazy" decoding="async"
                                          :src="'/level_img/level_' + userMessagesData.user.level + '.png'"
                                          style="height: 20px; margin-left: 8px; object-fit: contain;">
                                     <img v-if="userMessagesData.user.fans_club_level"
+                                         loading="lazy" decoding="async"
                                          :src="'/fansclub_img/fansclub_' + userMessagesData.user.fans_club_level + '.png'"
                                          style="height: 20px; margin-left: 4px; object-fit: contain;">
                                 </h2>
@@ -1086,9 +1088,9 @@
                              :class="['user-message-card', msg.type === 'gift' ? 'user-gift-card' : 'user-chat-card']">
                             <div class="flex items-center justify-between mb-1">
                                 <div class="flex items-center">
-                                    <img v-if="msg.user_level" :src="'/level_img/level_' + msg.user_level + '.png'"
+                                    <img v-if="msg.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + msg.user_level + '.png'"
                                          class="h-5 mr-1" style="width: 40px; object-fit: contain;">
-                                    <img v-if="msg.fans_club_level" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
+                                    <img v-if="msg.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
                                          style="height: 18px; object-fit: contain; vertical-align: middle; margin-right: 4px;">
                                     <span class="font-medium text-blue-600 text-sm" v-text="formatDisplayName(msg.nickname, msg.user_id)"></span>
                                     <span v-if="!userMessagesQuery.live_id && msg.live_id" class="ml-2 px-2 py-0.5 bg-white bg-opacity-70 rounded-full text-xs text-gray-500"
@@ -1133,8 +1135,8 @@
         {% endraw %}
     </div>
 
-    <script src="/static/vendor/echarts.min.js"></script>
-    <script src="/static/js/ui-kit.js"></script>
-    <script src="/static/js/stats.js"></script>
+    <script src="/static/vendor/echarts.min.js?v={{ asset_v('vendor/echarts.min.js') }}" async data-echarts-script="1" onload="this.dataset.loaded='1'" onerror="this.dataset.failed='1'"></script>
+    <script src="/static/js/ui-kit.js?v={{ asset_v('js/ui-kit.js') }}"></script>
+    <script src="/static/js/stats.js?v={{ asset_v('js/stats.js') }}"></script>
 </body>
 </html>

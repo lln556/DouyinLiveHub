@@ -7,10 +7,10 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
     <link rel="shortcut icon" type="image/svg+xml" href="/favicon.ico?v=2">
     <meta name="live-id" content="{{ live_id }}">
-    <script src="/static/vendor/vue.min.js"></script>
-    <script src="/static/vendor/socket.io.min.js"></script>
-    <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-    <link href="/static/css/app-ui.css" rel="stylesheet">
+    <script src="/static/vendor/vue.min.js?v={{ asset_v('vendor/vue.min.js') }}"></script>
+    <script src="/static/vendor/socket.io.min.js?v={{ asset_v('vendor/socket.io.min.js') }}"></script>
+    <link href="/static/vendor/tailwind.min.css?v={{ asset_v('vendor/tailwind.min.css') }}" rel="stylesheet">
+    <link href="/static/css/app-ui.css?v={{ asset_v('css/app-ui.css') }}" rel="stylesheet">
     <style>
         .messages-container {
             height: 430px;
@@ -467,10 +467,12 @@
                             :class="['message', getMessageClass(msg)]">
                             <div>
                                 <img v-if="msg.user_level"
+                                     loading="lazy" decoding="async"
                                      :src="'/level_img/level_' + msg.user_level + '.png'"
                                      class="user-level-icon"
                                      alt="等级">
                                 <img v-if="msg.fans_club_level > 0"
+                                     loading="lazy" decoding="async"
                                      :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
                                      class="fans-club-icon"
                                      alt="粉丝团">
@@ -606,9 +608,11 @@
                                                  @click="openUserMessagesModal(contributor.user_id, contributor.user)"
                                                  v-text="formatDisplayName(contributor.user, contributor.user_id)"></span>
                                             <img v-if="contributor.user_level"
+                                                 loading="lazy" decoding="async"
                                                  :src="'/level_img/level_' + contributor.user_level + '.png'"
                                                  style="height: 16px; object-fit: contain; flex-shrink: 0;">
                                             <img v-if="contributor.fans_club_level"
+                                                 loading="lazy" decoding="async"
                                                  :src="'/fansclub_img/fansclub_' + contributor.fans_club_level + '.png'"
                                                  style="height: 16px; object-fit: contain; flex-shrink: 0;">
                                         </div>
@@ -643,9 +647,11 @@
                                                  @click="openUserMessagesModal(liker.user_id, liker.user, { allSessions: !currentSession })"
                                                  v-text="formatDisplayName(liker.user, liker.user_id)"></span>
                                             <img v-if="liker.user_level"
+                                                 loading="lazy" decoding="async"
                                                  :src="'/level_img/level_' + liker.user_level + '.png'"
                                                  style="height: 16px; object-fit: contain; flex-shrink: 0;">
                                             <img v-if="liker.fans_club_level"
+                                                 loading="lazy" decoding="async"
                                                  :src="'/fansclub_img/fansclub_' + liker.fans_club_level + '.png'"
                                                  style="height: 16px; object-fit: contain; flex-shrink: 0;">
                                         </div>
@@ -676,9 +682,11 @@
                                 <h2 class="text-lg font-bold text-gray-900 flex items-center">
                                     <span v-text="formatDisplayName(userMessagesData.user.nickname, userMessagesData.user.user_id)"></span>
                                     <img v-if="userMessagesData.user.level"
+                                         loading="lazy" decoding="async"
                                          :src="'/level_img/level_' + userMessagesData.user.level + '.png'"
                                          style="height: 18px; margin-left: 8px; object-fit: contain;">
                                     <img v-if="userMessagesData.user.fans_club_level"
+                                         loading="lazy" decoding="async"
                                          :src="'/fansclub_img/fansclub_' + userMessagesData.user.fans_club_level + '.png'"
                                          style="height: 18px; margin-left: 4px; object-fit: contain;">
                                 </h2>
@@ -753,9 +761,9 @@
                              :class="['user-message-card', msg.type === 'gift' ? 'user-gift-card' : 'user-chat-card']">
                             <div class="flex items-center justify-between mb-1">
                                 <div class="flex items-center">
-                                    <img v-if="msg.user_level" :src="'/level_img/level_' + msg.user_level + '.png'"
+                                    <img v-if="msg.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + msg.user_level + '.png'"
                                          class="h-4 mr-1" style="object-fit: contain;">
-                                    <img v-if="msg.fans_club_level" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
+                                    <img v-if="msg.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
                                          style="height: 16px; object-fit: contain; margin-right: 4px;">
                                     <span class="font-semibold text-blue-600 text-xs" v-text="formatDisplayName(msg.nickname, msg.user_id)"></span>
                                 </div>
@@ -850,7 +858,7 @@
         </div>
     </div>
 
-    <script src="/static/js/ui-kit.js"></script>
-    <script src="/static/js/room.js"></script>
+    <script src="/static/js/ui-kit.js?v={{ asset_v('js/ui-kit.js') }}"></script>
+    <script src="/static/js/room.js?v={{ asset_v('js/room.js') }}"></script>
 </body>
 </html>
