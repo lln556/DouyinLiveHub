@@ -18,6 +18,7 @@ from crawler.fetcher import decompress_push_frame_payload
 from protobuf.douyin import BindingGiftMessage, PushFrame, Response, ChatMessage, GiftMessage, LikeMessage, RoomUserSeqMessage, ControlMessage
 from utils.logger import get_logger
 from utils.gift_packet_sampler import gift_packet_sampler
+from utils import gift_registry
 import config
 
 
@@ -311,13 +312,19 @@ class WebDouyinLiveFetcher:
         )[0]
 
     @staticmethod
-    def _resolve_gift_unit_price_with_source(gift_struct, tray_info=None, extra_json_blobs=()) -> tuple[float, str]:
-        """按配置、进阶等级、扩展 JSON、基础钻石数的顺序解析单价。"""
-        gift_name = (getattr(gift_struct, 'name', '') or '').strip()
+    def _get_effective_gift_overrides() -> tuple[dict, str]:
+        """返回实时合并的价格覆盖和原始环境配置，供计价与来源判断共用。"""
         # 支持测试和运行进程热更新环境配置，无需重新导入 config 模块。
         raw_overrides = os.getenv('GIFT_PRICE_OVERRIDES', '')
         overrides = (config.parse_gift_price_overrides(raw_overrides) if raw_overrides.strip()
                      else config.GIFT_PRICE_OVERRIDES)
+        return overrides, raw_overrides
+
+    @staticmethod
+    def _resolve_gift_unit_price_with_source(gift_struct, tray_info=None, extra_json_blobs=()) -> tuple[float, str]:
+        """按配置、进阶等级、扩展 JSON、盒内礼物、基础钻石数的顺序解析单价。"""
+        gift_name = (getattr(gift_struct, 'name', '') or '').strip()
+        overrides, raw_overrides = WebDouyinLiveFetcher._get_effective_gift_overrides()
         if gift_name in overrides:
             source = 'builtin_override'
             if raw_overrides.strip():
@@ -351,16 +358,21 @@ class WebDouyinLiveFetcher:
                 extra = json.loads(blob)
             except (ValueError, TypeError):
                 continue
-            if not isinstance(extra, dict):
-                continue
-            for key in price_keys:
-                for candidate in (extra, extra.get('data'), extra.get('gift')):
-                    if not isinstance(candidate, dict):
-                        continue
-                    value = candidate.get(key)
-                    if (isinstance(value, (int, float)) and not isinstance(value, bool)
-                            and value > base_diamond and math.isfinite(value)):
-                        return float(value), 'extra_json'
+            if isinstance(extra, dict):
+                for key in price_keys:
+                    for candidate in (extra, extra.get('data'), extra.get('gift')):
+                        if not isinstance(candidate, dict):
+                            continue
+                        value = candidate.get(key)
+                        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                                and value > base_diamond and math.isfinite(value)):
+                            return float(value), 'extra_json'
+            if isinstance(extra, (dict, list)):
+                diy_resolved = gift_registry.resolve_diy_composite_gift(
+                    extra, outer_name=gift_name, overrides=overrides,
+                )
+                if diy_resolved is not None:
+                    return diy_resolved[0], 'diy_gift_registry'
         return base_diamond, 'base_diamond'
 
     def _handle_gift_message(self, gift_msg, raw_payload=b'', source_method='WebcastGiftMessage'):
@@ -371,12 +383,24 @@ class WebDouyinLiveFetcher:
         series_items = [s for s in (getattr(gift_msg, 'series_gift_data', None) or [])
                         if getattr(getattr(s, 'gift_struct', None), 'name', '')]
         gift_name = outer_name
+        extra_json_blobs = (getattr(gift_msg, 'diy_item_info', ''),
+                            getattr(gift_msg, 'interact_gift_info', ''),
+                            getattr(gift_msg, 'gift_play_param', ''))
         gift_price, price_source = self._resolve_gift_unit_price_with_source(
             gift_msg.gift, tray_info=getattr(gift_msg, 'tray_info', None),
-            extra_json_blobs=(getattr(gift_msg, 'diy_item_info', ''),
-                              getattr(gift_msg, 'interact_gift_info', ''),
-                              getattr(gift_msg, 'gift_play_param', '')),
+            extra_json_blobs=extra_json_blobs,
         ) if not series_items else (0.0, 'series_children')
+        if price_source == 'diy_gift_registry':
+            overrides, _ = self._get_effective_gift_overrides()
+            for blob in extra_json_blobs:
+                diy_resolved = gift_registry.resolve_diy_composite_gift(
+                    blob, outer_name=gift_name, overrides=overrides,
+                )
+                if diy_resolved is not None:
+                    if diy_resolved[1]:
+                        # 仅丰富落库与推送名称，采样仍使用未改动的原始礼物消息。
+                        gift_name = diy_resolved[1]
+                    break
         gift_id = str(getattr(gift_msg, 'gift_id', '') or '')
         group_id = str(gift_msg.group_id) if getattr(gift_msg, 'group_id', 0) else None
         if group_id == '0':
@@ -423,12 +447,23 @@ class WebDouyinLiveFetcher:
                     inner_name = inner_struct.name
                     display_name = (f'{outer_name}({inner_name})'
                                     if outer_name and outer_name != inner_name else inner_name)
-                    item_price = self._resolve_gift_unit_price(
+                    item_extra_json_blobs = (getattr(s_item, 'diy_item_info', ''),
+                                             getattr(gift_msg, 'interact_gift_info', ''),
+                                             getattr(gift_msg, 'gift_play_param', ''))
+                    item_price, item_source = self._resolve_gift_unit_price_with_source(
                         inner_struct, tray_info=None,
-                        extra_json_blobs=(getattr(s_item, 'diy_item_info', ''),
-                                          getattr(gift_msg, 'interact_gift_info', ''),
-                                          getattr(gift_msg, 'gift_play_param', '')),
+                        extra_json_blobs=item_extra_json_blobs,
                     )
+                    if item_source == 'diy_gift_registry':
+                        overrides, _ = self._get_effective_gift_overrides()
+                        for blob in item_extra_json_blobs:
+                            diy_resolved = gift_registry.resolve_diy_composite_gift(
+                                blob, outer_name=outer_name or inner_name, overrides=overrides,
+                            )
+                            if diy_resolved is not None:
+                                if diy_resolved[1]:
+                                    display_name = diy_resolved[1]
+                                break
                     item_value = item_price * item_count
                     saved = data_service.save_gift_message(
                         self.live_id, live_session_id=self.current_session_id, anchor_name=self.anchor_name,
