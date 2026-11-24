@@ -1680,9 +1680,190 @@ class DataService:
         finally:
             session.close()
 
+    @staticmethod
+    def _parse_date_bound(date_str: str, is_end: bool = False) -> datetime:
+        parsed = datetime.strptime(date_str, '%Y-%m-%d')
+        if is_end:
+            return parsed.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=CHINA_TZ)
+        return parsed.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=CHINA_TZ)
+
+    @staticmethod
+    def _serialize_session_meta(session_obj: LiveSession) -> Dict[str, Any]:
+        return {
+            'id': session_obj.id,
+            'live_id': session_obj.live_id,
+            'anchor_name': session_obj.anchor_name,
+            'status': session_obj.status,
+            'start_time': session_obj.start_time.isoformat() if session_obj.start_time else None,
+            'end_time': session_obj.end_time.isoformat() if session_obj.end_time else None,
+        }
+
+    @staticmethod
+    def _resolve_user_card_anchor_session(
+        session,
+        live_id: str,
+        related_ids: List[str],
+        session_id: int,
+        anchor_session_id: int,
+        anchor_start_date: str,
+        anchor_end_date: str,
+    ):
+        target_session_id = anchor_session_id if anchor_session_id is not None else session_id
+        if target_session_id is not None:
+            anchor_q = session.query(LiveSession).filter(LiveSession.id == target_session_id)
+            if related_ids:
+                anchor_q = anchor_q.filter(LiveSession.live_id.in_(related_ids))
+            return anchor_q.first()
+        if related_ids and not (anchor_start_date or anchor_end_date):
+            live_candidates = session.query(LiveSession).filter(
+                LiveSession.live_id.in_(related_ids),
+                LiveSession.status == 'live',
+            ).order_by(LiveSession.start_time.desc(), LiveSession.id.desc()).all()
+            if live_candidates:
+                exact = [s for s in live_candidates if s.live_id == live_id]
+                return exact[0] if exact else live_candidates[0]
+        return None
+
+    @staticmethod
+    def _aggregate_user_message_scope(session, base_chat_conditions, base_gift_conditions, extra_chat_conds, extra_gift_conds) -> Dict[str, Any]:
+        c_conds = base_chat_conditions + extra_chat_conds
+        g_conds = base_gift_conditions + extra_gift_conds
+        c_count = session.query(func.count(ChatMessage.id)).filter(and_(*c_conds)).scalar() or 0
+        g_row = session.query(
+            func.count(GiftMessage.id),
+            func.coalesce(func.sum(GiftMessage.gift_count), 0),
+            func.coalesce(func.sum(GiftMessage.total_value), 0.0),
+        ).filter(and_(*g_conds)).first()
+        g_count = int(g_row[0] or 0) if g_row else 0
+        g_items = int(g_row[1] or 0) if g_row else 0
+        g_val = round(float(g_row[2] or 0.0), 2) if g_row else 0.0
+        return {
+            'chat_count': int(c_count),
+            'gift_count': g_count,
+            'gift_item_count': g_items,
+            'total_value': g_val,
+            'total_messages': int(c_count) + g_count,
+        }
+
+    def _build_user_card_scope_summary(
+        self,
+        session,
+        live_id: str,
+        related_ids: List[str],
+        room_obj,
+        resolved_anchor_name: str,
+        base_chat_conditions,
+        base_gift_conditions,
+        contrib_rows,
+        contrib_chat: int,
+        contrib_gift: int,
+        contrib_score: float,
+        room_like_count: int,
+        anchor_session,
+        anchor_session_id: int,
+        anchor_start_date: str,
+        anchor_end_date: str,
+    ) -> Dict[str, Any]:
+        detail_all = self._aggregate_user_message_scope(
+            session, base_chat_conditions, base_gift_conditions, [], [],
+        )
+        chat_sids = {
+            row[0] for row in session.query(ChatMessage.live_session_id).filter(
+                and_(*base_chat_conditions, ChatMessage.live_session_id.isnot(None))
+            ).distinct().all()
+        }
+        gift_sids = {
+            row[0] for row in session.query(GiftMessage.live_session_id).filter(
+                and_(*base_gift_conditions, GiftMessage.live_session_id.isnot(None))
+            ).distinct().all()
+        }
+        session_count = len(chat_sids | gift_sids)
+        retained_messages = detail_all['total_messages']
+
+        if retained_messages == 0 and contrib_rows and (contrib_chat + contrib_gift > 0 or contrib_score > 0):
+            all_bucket = {
+                'chat_count': contrib_chat,
+                'gift_count': contrib_gift,
+                'gift_item_count': contrib_gift,
+                'total_value': contrib_score,
+                'total_messages': contrib_chat + contrib_gift,
+                'like_count': room_like_count,
+                'session_count': session_count,
+                'retained_messages': 0,
+                'has_pruned_history': True,
+            }
+        else:
+            has_pruned = bool(
+                retained_messages > 0
+                and contrib_rows
+                and contrib_score > detail_all['total_value'] + 0.01
+            )
+            all_bucket = {
+                **detail_all,
+                'like_count': room_like_count,
+                'session_count': session_count,
+                'retained_messages': retained_messages,
+                'has_pruned_history': has_pruned,
+            }
+
+        if (anchor_start_date or anchor_end_date) and anchor_session_id is None:
+            extra_c, extra_g = [], []
+            if anchor_start_date:
+                start_dt = self._parse_date_bound(anchor_start_date, is_end=False)
+                extra_c.append(ChatMessage.created_at >= start_dt)
+                extra_g.append(GiftMessage.created_at >= start_dt)
+            if anchor_end_date:
+                end_dt = self._parse_date_bound(anchor_end_date, is_end=True)
+                extra_c.append(ChatMessage.created_at <= end_dt)
+                extra_g.append(GiftMessage.created_at <= end_dt)
+            focus_bucket = {
+                'kind': 'date_range',
+                'session_id': None,
+                'start_date': anchor_start_date,
+                'end_date': anchor_end_date,
+                **self._aggregate_user_message_scope(
+                    session, base_chat_conditions, base_gift_conditions, extra_c, extra_g,
+                ),
+            }
+        elif anchor_session is not None:
+            focus_bucket = {
+                'kind': 'session',
+                'session_id': anchor_session.id,
+                'start_date': None,
+                'end_date': None,
+                **self._aggregate_user_message_scope(
+                    session,
+                    base_chat_conditions,
+                    base_gift_conditions,
+                    [ChatMessage.live_session_id == anchor_session.id],
+                    [GiftMessage.live_session_id == anchor_session.id],
+                ),
+            }
+        else:
+            focus_bucket = None
+
+        room_bucket = (
+            {
+                'live_id': live_id,
+                'anchor_name': room_obj.anchor_name if room_obj and room_obj.anchor_name else resolved_anchor_name,
+                'related_live_ids': related_ids,
+            }
+            if live_id else None
+        )
+
+        return {
+            'anchor_session': self._serialize_session_meta(anchor_session) if anchor_session else None,
+            'focus': focus_bucket,
+            'all': all_bucket,
+            'room_like_count': room_like_count,
+            'room': room_bucket,
+        }
+
     def get_user_messages(self, live_id: str = None, user_id: str = None, user_name: str = None, session_id: int = None,
                           start_date: str = None, end_date: str = None,
-                          message_type: str = 'all', limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+                          message_type: str = 'all', limit: int = 50, offset: int = 0,
+                          anchor_session_id: int = None, anchor_start_date: str = None,
+                          anchor_end_date: str = None) -> Dict[str, Any]:
         """
         获取用户在指定条件下的消息记录
         :param live_id: 房间ID（可选，None 表示所有房间）
@@ -1694,53 +1875,49 @@ class DataService:
         :param message_type: 消息类型 (all/chat/gift)
         :param limit: 每页数量
         :param offset: 偏移量
-        :return: {'user': {...}, 'stats': {...}, 'messages': [...], 'pagination': {...}}
+        :param anchor_session_id: 聚焦场次ID（仅用于 scope_summary.focus，不参与消息 WHERE 过滤）
+        :param anchor_start_date: 聚焦开始日期（仅用于 scope_summary.focus，不参与消息 WHERE 过滤）
+        :param anchor_end_date: 聚焦结束日期（仅用于 scope_summary.focus，不参与消息 WHERE 过滤）
+        :return: {'user': {...}, 'stats': {...}, 'messages': [...], 'pagination': {...}, 'sessions': {...}, 'scope_summary': {...}}
         """
         session = self.get_session()
         try:
             if not user_id and not user_name:
                 raise ValueError('请提供 user_id 或 user_name')
 
-            # 构建基础查询条件
-            chat_conditions = []
-            gift_conditions = []
+            base_chat_conditions = []
+            base_gift_conditions = []
             related_ids = self._related_live_ids(session, live_id) if live_id else []
 
             if related_ids:
-                chat_conditions.append(ChatMessage.live_id.in_(related_ids))
-                gift_conditions.append(GiftMessage.live_id.in_(related_ids))
+                base_chat_conditions.append(ChatMessage.live_id.in_(related_ids))
+                base_gift_conditions.append(GiftMessage.live_id.in_(related_ids))
 
             if user_id:
-                chat_conditions.append(ChatMessage.user_id == user_id)
-                gift_conditions.append(GiftMessage.user_id == user_id)
+                base_chat_conditions.append(ChatMessage.user_id == user_id)
+                base_gift_conditions.append(GiftMessage.user_id == user_id)
             else:
                 keyword = f"%{self._escape_like(user_name.strip())}%"
-                chat_conditions.append(ChatMessage.user_name.ilike(keyword, escape='\\'))
-                gift_conditions.append(GiftMessage.user_name.ilike(keyword, escape='\\'))
+                base_chat_conditions.append(ChatMessage.user_name.ilike(keyword, escape='\\'))
+                base_gift_conditions.append(GiftMessage.user_name.ilike(keyword, escape='\\'))
 
-            # 如果指定了场次ID，按场次筛选
+            chat_conditions = list(base_chat_conditions)
+            gift_conditions = list(base_gift_conditions)
+
             if session_id:
                 chat_conditions.append(ChatMessage.live_session_id == session_id)
                 gift_conditions.append(GiftMessage.live_session_id == session_id)
-            # 如果指定了日期范围，按日期筛选
             else:
                 if start_date:
-                    start_datetime = datetime.strptime(start_date, '%Y-%m-%d').replace(
-                        hour=0, minute=0, second=0, microsecond=0,
-                        tzinfo=CHINA_TZ
-                    )
+                    start_datetime = self._parse_date_bound(start_date, is_end=False)
                     chat_conditions.append(ChatMessage.created_at >= start_datetime)
                     gift_conditions.append(GiftMessage.created_at >= start_datetime)
 
                 if end_date:
-                    end_datetime = datetime.strptime(end_date, '%Y-%m-%d').replace(
-                        hour=23, minute=59, second=59, microsecond=999999,
-                        tzinfo=CHINA_TZ
-                    )
+                    end_datetime = self._parse_date_bound(end_date, is_end=True)
                     chat_conditions.append(ChatMessage.created_at <= end_datetime)
                     gift_conditions.append(GiftMessage.created_at <= end_datetime)
 
-            # 统计用户数据
             chat_count = session.query(func.count(ChatMessage.id)).filter(
                 and_(*chat_conditions)
             ).scalar() or 0
@@ -1749,27 +1926,23 @@ class DataService:
                 and_(*gift_conditions)
             ).scalar() or 0
 
-            # 计算累计贡献值（礼物总价值）
             total_value = session.query(func.sum(GiftMessage.total_value)).filter(
                 and_(*gift_conditions)
             ).scalar() or 0
 
-            # 获取用户最高等级
             max_chat_level = session.query(func.max(ChatMessage.user_level)).filter(
                 and_(*chat_conditions)
             ).scalar() or 0
             max_gift_level = session.query(func.max(GiftMessage.user_level)).filter(
                 and_(*gift_conditions)
             ).scalar() or 0
-            max_level = max(max_chat_level, max_gift_level)
 
-            # 获取用户昵称（优先从最近的消息获取）
             latest_chat = session.query(ChatMessage).filter(
                 and_(*chat_conditions)
-            ).order_by(ChatMessage.created_at.desc()).first()
+            ).order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).first()
             latest_gift = session.query(GiftMessage).filter(
                 and_(*gift_conditions)
-            ).order_by(GiftMessage.created_at.desc()).first()
+            ).order_by(GiftMessage.created_at.desc(), GiftMessage.id.desc()).first()
 
             display_name = user_name or user_id
             resolved_user_id = user_id
@@ -1780,7 +1953,6 @@ class DataService:
                 display_name = latest_gift.user_name
                 resolved_user_id = latest_gift.user_id
 
-            # 从 user_contributions 表获取用户头像
             contrib_conditions = []
             if related_ids:
                 contrib_conditions.append(UserContribution.live_id.in_(related_ids))
@@ -1789,6 +1961,7 @@ class DataService:
             elif user_name:
                 contrib_conditions.append(UserContribution.user_name.ilike(f"%{self._escape_like(user_name.strip())}%", escape="\\"))
 
+            contrib_rows = []
             user_contrib = None
             like_count = 0
             if contrib_conditions:
@@ -1797,16 +1970,38 @@ class DataService:
                 ).order_by(UserContribution.updated_at.desc()).all()
                 user_contrib = contrib_rows[0] if contrib_rows else None
                 like_count = 0 if session_id is not None else sum(int(row.like_count or 0) for row in contrib_rows)
+
+            max_contrib_level = max((int(row.user_level or 0) for row in contrib_rows), default=0)
+            max_level = max(max_chat_level, max_gift_level, max_contrib_level)
+
+            contrib_chat = sum(int(row.chat_count or 0) for row in contrib_rows)
+            contrib_gift = sum(int(row.gift_count or 0) for row in contrib_rows)
+            contrib_score = round(sum(float(row.total_score or 0) for row in contrib_rows), 2)
+            room_like_count = sum(int(row.like_count or 0) for row in contrib_rows)
+
             user_avatar = user_contrib.user_avatar if user_contrib else None
             if user_contrib and not latest_chat and not latest_gift:
                 display_name = user_contrib.user_name
                 resolved_user_id = user_contrib.user_id
                 if session_id is None and not start_date and not end_date:
-                    total_value = user_contrib.total_score or 0
-                    gift_count = user_contrib.gift_count or 0
-                    chat_count = user_contrib.chat_count or 0
+                    total_value = contrib_score
+                    gift_count = contrib_gift
+                    chat_count = contrib_chat
 
-            # 构建用户信息（含额外信息）
+            room_obj = (
+                session.query(LiveRoom).filter(LiveRoom.live_id == live_id).first()
+                if live_id else None
+            )
+            latest_msg_anchor = (
+                (latest_chat.anchor_name if latest_chat and latest_chat.anchor_name else None)
+                or (latest_gift.anchor_name if latest_gift and latest_gift.anchor_name else None)
+            )
+            resolved_anchor_name = (
+                (room_obj.anchor_name if room_obj and room_obj.anchor_name else None)
+                or latest_msg_anchor
+                or (user_contrib.anchor_name if user_contrib and user_contrib.anchor_name else None)
+            )
+
             user_info = {
                 'user_id': resolved_user_id or user_id or '',
                 'display_id': user_contrib.display_id if user_contrib else None,
@@ -1818,9 +2013,9 @@ class DataService:
                 'following_count': user_contrib.following_count if user_contrib else None,
                 'age_range': user_contrib.age_range if user_contrib else None,
                 'fans_club_level': user_contrib.fans_club_level if user_contrib else 0,
+                'anchor_name': resolved_anchor_name,
             }
 
-            # 构建统计信息
             stats_info = {
                 'total_messages': chat_count + gift_count,
                 'chat_count': chat_count,
@@ -1829,103 +2024,116 @@ class DataService:
                 'total_value': int(total_value)
             }
 
-            # 获取消息列表
             messages = []
             total = 0
 
-            if message_type in ['all', 'chat']:
+            if message_type in ('all', 'chat'):
                 chat_query = session.query(ChatMessage).filter(
                     and_(*chat_conditions)
-                ).order_by(ChatMessage.created_at.desc())
+                ).order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
 
                 if message_type == 'chat':
-                    # 只返回弹幕，需要计算总数
                     total = chat_count
-                    chat_query = chat_query.offset(offset).limit(limit)
-
-                    for msg in (chat_query.limit(offset + limit) if message_type == 'all' else chat_query).all():
-                        messages.append({
-                            'id': msg.id,
-                            'type': 'chat',
-                            'live_id': msg.live_id,
-                            'anchor_name': msg.anchor_name,
-                            'user_id': msg.user_id,
-                            'nickname': msg.user_name,
-                            'user_level': msg.user_level,
-                            'content': msg.content,
-                            'emoji_list': msg.emoji_list,
-                            'fans_club_level': msg.fans_club_level or 0,
-                            'created_at': msg.created_at.isoformat() if msg.created_at else None
-                        })
+                    chat_rows = chat_query.offset(offset).limit(limit).all()
                 else:
-                    # 返回所有类型，稍后合并排序
-                    for msg in (chat_query.limit(offset + limit) if message_type == 'all' else chat_query).all():
-                        messages.append({
-                            'id': msg.id,
-                            'type': 'chat',
-                            'live_id': msg.live_id,
-                            'anchor_name': msg.anchor_name,
-                            'user_id': msg.user_id,
-                            'nickname': msg.user_name,
-                            'user_level': msg.user_level,
-                            'content': msg.content,
-                            'emoji_list': msg.emoji_list,
-                            'fans_club_level': msg.fans_club_level or 0,
-                            'created_at': msg.created_at.isoformat() if msg.created_at else None
-                        })
+                    chat_rows = chat_query.limit(offset + limit).all()
 
-            if message_type in ['all', 'gift']:
+                for msg in chat_rows:
+                    messages.append({
+                        'id': msg.id,
+                        'type': 'chat',
+                        'live_id': msg.live_id,
+                        'session_id': msg.live_session_id,
+                        'anchor_name': msg.anchor_name,
+                        'user_id': msg.user_id,
+                        'nickname': msg.user_name,
+                        'user_level': msg.user_level,
+                        'content': msg.content,
+                        'emoji_list': msg.emoji_list,
+                        'fans_club_level': msg.fans_club_level or 0,
+                        'created_at': msg.created_at.isoformat() if msg.created_at else None
+                    })
+
+            if message_type in ('all', 'gift'):
                 gift_query = session.query(GiftMessage).filter(
                     and_(*gift_conditions)
-                ).order_by(GiftMessage.created_at.desc())
+                ).order_by(GiftMessage.created_at.desc(), GiftMessage.id.desc())
 
                 if message_type == 'gift':
-                    # 只返回礼物
                     total = gift_count
-                    gift_query = gift_query.offset(offset).limit(limit)
-
-                    for msg in (gift_query.limit(offset + limit) if message_type == 'all' else gift_query).all():
-                        messages.append({
-                            'id': msg.id,
-                            'type': 'gift',
-                            'live_id': msg.live_id,
-                            'anchor_name': msg.anchor_name,
-                            'user_id': msg.user_id,
-                            'nickname': msg.user_name,
-                            'user_level': msg.user_level,
-                            'gift_name': msg.gift_name,
-                            'gift_count': msg.gift_count,
-                            'diamond_count': msg.total_value,
-                            'fans_club_level': msg.fans_club_level or 0,
-                            'created_at': msg.created_at.isoformat() if msg.created_at else None
-                        })
+                    gift_rows = gift_query.offset(offset).limit(limit).all()
                 else:
-                    # 返回所有类型
-                    for msg in (gift_query.limit(offset + limit) if message_type == 'all' else gift_query).all():
-                        messages.append({
-                            'id': msg.id,
-                            'type': 'gift',
-                            'live_id': msg.live_id,
-                            'anchor_name': msg.anchor_name,
-                            'user_id': msg.user_id,
-                            'nickname': msg.user_name,
-                            'user_level': msg.user_level,
-                            'gift_name': msg.gift_name,
-                            'gift_count': msg.gift_count,
-                            'diamond_count': msg.total_value,
-                            'fans_club_level': msg.fans_club_level or 0,
-                            'created_at': msg.created_at.isoformat() if msg.created_at else None
-                        })
+                    gift_rows = gift_query.limit(offset + limit).all()
 
-            # 如果是 all 类型，需要合并排序后分页
+                for msg in gift_rows:
+                    messages.append({
+                        'id': msg.id,
+                        'type': 'gift',
+                        'live_id': msg.live_id,
+                        'session_id': msg.live_session_id,
+                        'anchor_name': msg.anchor_name,
+                        'user_id': msg.user_id,
+                        'nickname': msg.user_name,
+                        'user_level': msg.user_level,
+                        'gift_name': msg.gift_name,
+                        'gift_count': msg.gift_count,
+                        'diamond_count': msg.total_value,
+                        'fans_club_level': msg.fans_club_level or 0,
+                        'created_at': msg.created_at.isoformat() if msg.created_at else None
+                    })
+
             if message_type == 'all':
                 total = chat_count + gift_count
-                # 按时间排序
-                messages.sort(key=lambda x: x['created_at'], reverse=True)
-                # 分页
+                messages.sort(
+                    key=lambda x: (
+                        x['created_at'] or '',
+                        x['session_id'] or 0,
+                        1 if x['type'] == 'gift' else 0,
+                        x['id'],
+                    ),
+                    reverse=True,
+                )
                 messages = messages[offset:offset + limit]
 
-            # 计算分页信息
+            anchor_session = self._resolve_user_card_anchor_session(
+                session,
+                live_id=live_id,
+                related_ids=related_ids,
+                session_id=session_id,
+                anchor_session_id=anchor_session_id,
+                anchor_start_date=anchor_start_date,
+                anchor_end_date=anchor_end_date,
+            )
+
+            session_ids_needed = {m['session_id'] for m in messages if m.get('session_id') is not None}
+            if anchor_session is not None:
+                session_ids_needed.add(anchor_session.id)
+            sessions_map = {}
+            if session_ids_needed:
+                session_rows = session.query(LiveSession).filter(
+                    LiveSession.id.in_(session_ids_needed)
+                ).all()
+                sessions_map = {str(s.id): self._serialize_session_meta(s) for s in session_rows}
+
+            scope_summary = self._build_user_card_scope_summary(
+                session,
+                live_id=live_id,
+                related_ids=related_ids,
+                room_obj=room_obj,
+                resolved_anchor_name=resolved_anchor_name,
+                base_chat_conditions=base_chat_conditions,
+                base_gift_conditions=base_gift_conditions,
+                contrib_rows=contrib_rows,
+                contrib_chat=contrib_chat,
+                contrib_gift=contrib_gift,
+                contrib_score=contrib_score,
+                room_like_count=room_like_count,
+                anchor_session=anchor_session,
+                anchor_session_id=anchor_session_id,
+                anchor_start_date=anchor_start_date,
+                anchor_end_date=anchor_end_date,
+            )
+
             page_size = limit
             page = (offset // page_size) + 1 if page_size > 0 else 1
             total_pages = (total + page_size - 1) // page_size if total > 0 else 1
@@ -1941,7 +2149,9 @@ class DataService:
                 'user': user_info,
                 'stats': stats_info,
                 'messages': messages,
-                'pagination': pagination
+                'pagination': pagination,
+                'sessions': sessions_map,
+                'scope_summary': scope_summary,
             }
         finally:
             session.close()

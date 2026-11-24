@@ -270,10 +270,11 @@ class WebDouyinLiveFetcher:
         fields = self._message_user_fields(user_proto)
         data_service = self.monitored_room.manager.data_service
         with self.monitored_room.data_lock:
+            emit_session_id = self.current_session_id
             is_gift_user = fields['user_id'] in self.monitored_room.gift_user_ids
             saved = data_service.save_chat_message(
                 self.live_id,
-                live_session_id=self.current_session_id,
+                live_session_id=emit_session_id,
                 anchor_name=self.anchor_name,
                 user_id=fields['user_id'],
                 user_name=fields['user'],
@@ -285,8 +286,8 @@ class WebDouyinLiveFetcher:
             )
             if saved is None:
                 return
-            if self.current_session_id:
-                data_service.increment_session_stats(self.current_session_id, chat_count_delta=1)
+            if emit_session_id:
+                data_service.increment_session_stats(emit_session_id, chat_count_delta=1)
             self.monitored_room.update_contribution(
                 fields['user_id'], fields['user'], chat_count=1,
                 display_id=fields['display_id'],
@@ -295,6 +296,7 @@ class WebDouyinLiveFetcher:
             )
         self.socketio.emit(f'room_{self.live_id}', {
             'type': 'chat',
+            'session_id': emit_session_id,
             **fields,
             'text': content,
             'emoji_list': emoji_list,
@@ -463,6 +465,7 @@ class WebDouyinLiveFetcher:
             payloads = []
             item_count = max(1, int(per_combo_count))
             with self.monitored_room.data_lock:
+                emit_session_id = self.current_session_id
                 if dedupe_key and dedupe_key in self.monitored_room.trace_dedupe_set:
                     return
                 completed = True
@@ -494,7 +497,7 @@ class WebDouyinLiveFetcher:
                                 break
                     item_value = item_price * item_count
                     saved = data_service.save_gift_message(
-                        self.live_id, live_session_id=self.current_session_id, anchor_name=self.anchor_name,
+                        self.live_id, live_session_id=emit_session_id, anchor_name=self.anchor_name,
                         user_id=fields['user_id'], user_name=fields['user'], user_level=fields['user_level'],
                         gift_id=str(getattr(inner_struct, 'id', 0) or ''), gift_name=display_name,
                         gift_count=item_count, gift_price=item_price, total_value=item_value,
@@ -521,12 +524,13 @@ class WebDouyinLiveFetcher:
                     except Exception:
                         self.log.error("礼物明细已保存，贡献统计写入失败")
                     finally:
-                        if self.current_session_id:
+                        if emit_session_id:
                             data_service.increment_session_stats(
-                                self.current_session_id, income_delta=item_value, gift_count_delta=item_count,
+                                emit_session_id, income_delta=item_value, gift_count_delta=item_count,
                             )
                     payloads.append({
-                        'type': 'gift', **fields, 'gift_name': display_name, 'gift_count': item_count,
+                        'type': 'gift', 'session_id': emit_session_id, **fields,
+                        'gift_name': display_name, 'gift_count': item_count,
                         'gift_price': item_price, 'total_value': item_value, 'is_combo': False,
                     })
                 # 整包完成才屏蔽外层重放，部分保存失败时仍可重试未落库的子礼物。
@@ -539,6 +543,7 @@ class WebDouyinLiveFetcher:
             return
 
         with self.monitored_room.data_lock:
+            emit_session_id = self.current_session_id
             self._cleanup_combo_gifts(self.last_gift_time)
             if dedupe_key and dedupe_key in self.monitored_room.trace_dedupe_set:
                 return
@@ -554,7 +559,7 @@ class WebDouyinLiveFetcher:
             total_gift_value = gift_price * gift_count
             # 连击采用不可变增量明细，SUM 与每次记账一致，唯一 trace 列保护重放。
             saved = data_service.save_gift_message(
-                self.live_id, live_session_id=self.current_session_id, anchor_name=self.anchor_name,
+                self.live_id, live_session_id=emit_session_id, anchor_name=self.anchor_name,
                 user_id=fields['user_id'], user_name=fields['user'], user_level=fields['user_level'],
                 gift_id=gift_id, gift_name=gift_name, gift_count=partial_count,
                 gift_price=gift_price, total_value=partial_value,
@@ -586,12 +591,13 @@ class WebDouyinLiveFetcher:
                 # 明细已提交；贡献失败不得阻断场次记账，也不能盲目重试未知提交状态。
                 self.log.error("礼物明细已保存，贡献统计写入失败")
             finally:
-                if self.current_session_id:
+                if emit_session_id:
                     data_service.increment_session_stats(
-                        self.current_session_id, income_delta=partial_value, gift_count_delta=partial_count,
+                        emit_session_id, income_delta=partial_value, gift_count_delta=partial_count,
                     )
         payload = {
-            'type': 'gift', **fields, 'gift_name': gift_name, 'gift_count': partial_count,
+            'type': 'gift', 'session_id': emit_session_id, **fields,
+            'gift_name': gift_name, 'gift_count': partial_count,
             'gift_price': gift_price, 'total_value': partial_value, 'is_combo': is_combo,
         }
         if is_combo:

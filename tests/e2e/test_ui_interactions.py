@@ -1021,5 +1021,353 @@ def test_modern_native_dialogs_ime_guard_and_stacked_top_layer(authed_page, base
     assert console_errors == [], f"console errors: {console_errors}"
 
 
+def test_user_card_live_vs_history_scope_toggle_and_dividers(authed_page, base_url, factories):
+    from datetime import datetime
+    from models.database import CHINA_TZ
+
+    room = factories.room(live_id="e2e_scope_live_01", anchor_name="双场测试主播", status="monitoring")
+    s_old = factories.session_(
+        live_id=room.live_id,
+        status="ended",
+        start_time=datetime(2026, 5, 1, 20, 0, tzinfo=CHINA_TZ),
+        end_time=datetime(2026, 5, 1, 22, 0, tzinfo=CHINA_TZ),
+        total_income=100,
+        total_chat_count=1,
+        total_gift_count=1,
+    )
+    s_live = factories.session_(
+        live_id=room.live_id,
+        status="live",
+        start_time=datetime(2026, 5, 2, 20, 0, tzinfo=CHINA_TZ),
+        total_income=10.5,
+        total_chat_count=1,
+        total_gift_count=3,
+    )
+    factories.chat(
+        live_id=room.live_id,
+        live_session_id=s_old.id,
+        user_id="u_dual_1",
+        user_name="双场老粉",
+        user_level=22,
+        content="昨晚的历史弹幕",
+        created_at=datetime(2026, 5, 1, 20, 30, tzinfo=CHINA_TZ),
+    )
+    factories.gift(
+        live_id=room.live_id,
+        live_session_id=s_old.id,
+        user_id="u_dual_1",
+        user_name="双场老粉",
+        user_level=22,
+        gift_name="火箭",
+        gift_count=1,
+        gift_price=100,
+        created_at=datetime(2026, 5, 1, 20, 31, tzinfo=CHINA_TZ),
+    )
+    factories.chat(
+        live_id=room.live_id,
+        live_session_id=s_live.id,
+        user_id="u_dual_1",
+        user_name="双场老粉",
+        user_level=25,
+        content="本场实时弹幕",
+        created_at=datetime(2026, 5, 2, 20, 5, tzinfo=CHINA_TZ),
+    )
+    factories.gift(
+        live_id=room.live_id,
+        live_session_id=s_live.id,
+        user_id="u_dual_1",
+        user_name="双场老粉",
+        user_level=25,
+        gift_name="棒棒糖",
+        gift_count=3,
+        gift_price=3.5,
+        created_at=datetime(2026, 5, 2, 20, 6, tzinfo=CHINA_TZ),
+    )
+    factories.contribution(
+        live_id=room.live_id,
+        user_id="u_dual_1",
+        user_name="双场老粉",
+        total_score=110.5,
+        gift_count=4,
+        chat_count=2,
+        like_count=88,
+        user_level=25,
+    )
+
+    page_errors = []
+    console_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+    authed_page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+
+    authed_page.goto(f"{base_url}/room/{room.live_id}", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+    authed_page.wait_for_function(
+        "() => document.querySelector('.messages-container')?.innerText.includes('本场实时弹幕')"
+    )
+
+    authed_page.locator(".messages-container .user-highlight", has_text="双场老粉").first.click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showUserMessagesModal && !vm.userMessagesLoading; }"
+    )
+
+    focus_btn = authed_page.locator(".user-modal-content [data-scope-btn='focus']")
+    all_btn = authed_page.locator(".user-modal-content [data-scope-btn='all']")
+    assert focus_btn.get_attribute("aria-pressed") == "true"
+    assert all_btn.get_attribute("aria-pressed") == "false"
+    assert "本场直播" in focus_btn.inner_text()
+
+    diamond_chip = authed_page.locator(".user-modal-content [data-chip='diamond']").inner_text()
+    like_chip = authed_page.locator(".user-modal-content [data-chip='like']").inner_text()
+    assert "10.5" in diamond_chip
+    assert "累计 110.5" in diamond_chip
+    assert "88" in like_chip
+    assert "房间累计" in like_chip
+
+    assert authed_page.locator(".user-modal-content .user-session-divider").count() == 0
+    list_text_focus = authed_page.locator(".user-modal-content .user-messages-list").inner_text()
+    assert "本场实时弹幕" in list_text_focus
+    assert "昨晚的历史弹幕" not in list_text_focus
+
+    authed_page.evaluate("() => { document.querySelector('#app').__vue__.userMessagesData.pagination.page = 2; }")
+    all_btn.click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.userCardScopeMode === 'all' && !vm.userMessagesLoading; }"
+    )
+    assert authed_page.evaluate("() => document.querySelector('#app').__vue__.userMessagesData.pagination.page") == 1
+    assert all_btn.get_attribute("aria-pressed") == "true"
+
+    dividers = authed_page.locator(".user-modal-content .user-session-divider")
+    assert dividers.count() == 2
+    assert "is-live" in (dividers.nth(0).get_attribute("class") or "")
+    assert "本场直播" in dividers.nth(0).inner_text()
+    assert "is-live" not in (dividers.nth(1).get_attribute("class") or "")
+    assert f"历史场次 #{s_old.id}" in dividers.nth(1).inner_text()
+
+    list_text_all = authed_page.locator(".user-modal-content .user-messages-list").inner_text()
+    assert "本场实时弹幕" in list_text_all
+    assert "昨晚的历史弹幕" in list_text_all
+    assert page_errors == [], f"pageerror: {page_errors}"
+    assert console_errors == [], f"console errors: {console_errors}"
+
+
+def test_room_offline_preview_search_opens_all_scope_for_historical_user(authed_page, base_url, factories):
+    from datetime import datetime
+    from models.database import CHINA_TZ
+
+    room = factories.room(live_id="e2e_scope_off_01", anchor_name="离线预览主播", status="offline")
+    s_older = factories.session_(
+        live_id=room.live_id,
+        status="ended",
+        start_time=datetime(2026, 5, 1, 18, 0, tzinfo=CHINA_TZ),
+        end_time=datetime(2026, 5, 1, 19, 0, tzinfo=CHINA_TZ),
+        total_chat_count=1,
+    )
+    s_prev = factories.session_(
+        live_id=room.live_id,
+        status="ended",
+        start_time=datetime(2026, 5, 2, 18, 0, tzinfo=CHINA_TZ),
+        end_time=datetime(2026, 5, 2, 19, 0, tzinfo=CHINA_TZ),
+        total_chat_count=1,
+    )
+    factories.chat(
+        live_id=room.live_id,
+        live_session_id=s_older.id,
+        user_id="u_old_only",
+        user_name="更早历史观众",
+        content="前天的留言记录",
+        created_at=datetime(2026, 5, 1, 18, 20, tzinfo=CHINA_TZ),
+    )
+    factories.chat(
+        live_id=room.live_id,
+        live_session_id=s_prev.id,
+        user_id="u_prev_only",
+        user_name="上一场观众",
+        content="昨晚收官消息",
+        created_at=datetime(2026, 5, 2, 18, 20, tzinfo=CHINA_TZ),
+    )
+
+    page_errors = []
+    console_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+    authed_page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+
+    authed_page.goto(f"{base_url}/room/{room.live_id}", wait_until="domcontentloaded")
+    _wait_vue_ready(authed_page)
+    authed_page.wait_for_function(
+        "() => document.querySelector('#app').__vue__.isOfflinePreview === true"
+    )
+
+    search_input = authed_page.locator("input[data-user-search-input='1']")
+    search_input.click()
+    search_input.fill("更早历史观众")
+    authed_page.locator("button[type='submit']", has_text="搜索").click()
+    authed_page.wait_for_function(
+        "() => document.querySelector('#app').__vue__.userSearchResults.length === 1"
+    )
+
+    authed_page.locator("form button", has_text="更早历史观众").first.dispatch_event("mousedown")
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showUserMessagesModal && !vm.userMessagesLoading; }"
+    )
+
+    focus_btn = authed_page.locator(".user-modal-content [data-scope-btn='focus']")
+    all_btn = authed_page.locator(".user-modal-content [data-scope-btn='all']")
+    assert "上一场" in focus_btn.inner_text()
+    assert focus_btn.get_attribute("aria-pressed") == "false"
+    assert all_btn.get_attribute("aria-pressed") == "true"
+    assert "前天的留言记录" in authed_page.locator(".user-modal-content .user-messages-list").inner_text()
+    assert page_errors == [], f"pageerror: {page_errors}"
+    assert console_errors == [], f"console errors: {console_errors}"
+
+
+def test_stats_session_deeplink_room_scoping_and_date_range_toggle(authed_page, base_url, factories):
+    from datetime import timedelta
+    from models.database import get_china_now
+
+    now = get_china_now()
+    recent_dt = (now - timedelta(days=1)).replace(hour=20, minute=0, second=0, microsecond=0)
+    old_dt = (now - timedelta(days=20)).replace(hour=20, minute=0, second=0, microsecond=0)
+
+    room_a = factories.room(live_id="e2e_stats_scope_a", anchor_name="主播甲")
+    room_b = factories.room(live_id="e2e_stats_scope_b", anchor_name="主播乙")
+
+    s_old_a = factories.session_(
+        live_id=room_a.live_id,
+        status="ended",
+        start_time=old_dt,
+        end_time=old_dt + timedelta(hours=1),
+        total_income=50,
+        total_chat_count=1,
+        total_gift_count=1,
+    )
+    s_recent_a = factories.session_(
+        live_id=room_a.live_id,
+        status="ended",
+        start_time=recent_dt,
+        end_time=recent_dt + timedelta(hours=1),
+        total_income=80,
+        total_chat_count=1,
+        total_gift_count=1,
+    )
+    s_other_b = factories.session_(
+        live_id=room_b.live_id,
+        status="ended",
+        start_time=recent_dt,
+        end_time=recent_dt + timedelta(hours=1),
+        total_income=30,
+        total_chat_count=1,
+    )
+
+    factories.chat(
+        live_id=room_a.live_id,
+        live_session_id=s_old_a.id,
+        user_id="u_shared_99",
+        user_name="跨期常客",
+        content="甲房20天前弹幕",
+        created_at=old_dt + timedelta(minutes=10),
+    )
+    factories.gift(
+        live_id=room_a.live_id,
+        live_session_id=s_old_a.id,
+        user_id="u_shared_99",
+        user_name="跨期常客",
+        gift_name="旧玫瑰",
+        gift_count=1,
+        gift_price=50,
+        created_at=old_dt + timedelta(minutes=15),
+    )
+    factories.chat(
+        live_id=room_a.live_id,
+        live_session_id=s_recent_a.id,
+        user_id="u_shared_99",
+        user_name="跨期常客",
+        content="甲房近期弹幕",
+        created_at=recent_dt + timedelta(minutes=10),
+    )
+    factories.gift(
+        live_id=room_a.live_id,
+        live_session_id=s_recent_a.id,
+        user_id="u_shared_99",
+        user_name="跨期常客",
+        gift_name="新玫瑰",
+        gift_count=1,
+        gift_price=80,
+        created_at=recent_dt + timedelta(minutes=15),
+    )
+    factories.chat(
+        live_id=room_b.live_id,
+        live_session_id=s_other_b.id,
+        user_id="u_shared_99",
+        user_name="跨期常客",
+        content="乙房绝不该泄露的弹幕",
+        created_at=recent_dt + timedelta(minutes=20),
+    )
+
+    page_errors = []
+    console_errors = []
+    authed_page.on("pageerror", lambda err: page_errors.append(str(err)))
+    authed_page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+
+    authed_page.goto(
+        f"{base_url}/stats?session_id={s_recent_a.id}",
+        wait_until="domcontentloaded",
+    )
+    _wait_vue_ready(authed_page)
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showSessionModal && !vm.sessionDetailLoading; }"
+    )
+    authed_page.locator("dialog[open] .clickable-user", has_text="跨期常客").first.click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showUserMessagesModal && !vm.userMessagesLoading; }"
+    )
+
+    assert "主播: 主播甲" in authed_page.locator(".user-modal-content [data-user-room-pill='1']").inner_text()
+    assert authed_page.locator(".user-modal-content [data-scope-btn='focus']").get_attribute("aria-pressed") == "true"
+
+    authed_page.locator(".user-modal-content [data-scope-btn='all']").click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.userCardScopeMode === 'all' && !vm.userMessagesLoading; }"
+    )
+    all_text = authed_page.locator(".user-modal-content .user-messages-list").inner_text()
+    assert "甲房近期弹幕" in all_text
+    assert "甲房20天前弹幕" in all_text
+    assert "乙房绝不该泄露的弹幕" not in all_text
+
+    authed_page.keyboard.press("Escape")
+    authed_page.wait_for_function("() => document.querySelector('#app').__vue__.showUserMessagesModal === false")
+    authed_page.keyboard.press("Escape")
+    authed_page.wait_for_function("() => document.querySelector('#app').__vue__.showSessionModal === false")
+
+    authed_page.locator("[data-dashboard-section='detail-grid'] .clickable-user", has_text="跨期常客").first.click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.showUserMessagesModal && !vm.userMessagesLoading; }"
+    )
+    focus_btn = authed_page.locator(".user-modal-content [data-scope-btn='focus']")
+    assert focus_btn.get_attribute("aria-pressed") == "true"
+    assert "近7天" in focus_btn.inner_text()
+    focused_list_text = authed_page.locator(".user-modal-content .user-messages-list").inner_text()
+    assert "甲房近期弹幕" in focused_list_text
+    assert "甲房20天前弹幕" not in focused_list_text
+
+    authed_page.locator(".user-modal-content [data-scope-btn='all']").click()
+    authed_page.wait_for_function(
+        "() => { const vm = document.querySelector('#app').__vue__; return vm.userCardScopeMode === 'all' && !vm.userMessagesLoading; }"
+    )
+    full_list_text = authed_page.locator(".user-modal-content .user-messages-list").inner_text()
+    assert "甲房20天前弹幕" in full_list_text
+    assert authed_page.locator(".user-modal-content .user-session-divider").count() == 2
+    assert page_errors == [], f"pageerror: {page_errors}"
+    assert console_errors == [], f"console errors: {console_errors}"
+
+
 
 

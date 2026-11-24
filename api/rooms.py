@@ -13,7 +13,11 @@ from utils.logger import get_logger
 logger = get_logger("api_rooms")
 
 
-class _InvalidIntParam(ValueError):
+class _InvalidParam(ValueError):
+    """仅用于客户端参数校验，避免将业务 ValueError 当作参数错误返回。"""
+
+
+class _InvalidIntParam(_InvalidParam):
     """仅用于客户端整数参数，避免将业务 ValueError 当作参数错误返回。"""
 
 
@@ -35,6 +39,20 @@ def _parse_int_param(raw, name, default, min_val=None, max_val=None):
     if max_val is not None and value > max_val:
         raise _InvalidIntParam(f'{name} 超出允许范围')
     return value
+
+
+def _parse_date_param(raw, name):
+    """校验可选 YYYY-MM-DD 日期参数，空白值视为 None。"""
+    text = (raw or '').strip()
+    if not text:
+        return None
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', text):
+        raise _InvalidParam(f'{name} 日期格式必须为 YYYY-MM-DD')
+    try:
+        datetime.strptime(text, '%Y-%m-%d')
+    except ValueError:
+        raise _InvalidParam(f'{name} 日期无效') from None
+    return text
 
 
 def init_rooms_api(data_service: DataService, room_manager, socketio):
@@ -761,9 +779,7 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             return jsonify({'error': '操作失败，请稍后重试'}), 500
 
     def _get_user_messages_response(live_id=None):
-        """获取用户在指定房间、场次或日期范围内的消息记录"""
         try:
-            # 获取参数
             user_id = (request.args.get('user_id') or '').strip() or None
             user_name = (
                 request.args.get('user_name')
@@ -777,16 +793,22 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
             if not user_id and not user_name:
                 return jsonify({'error': '请提供 user_name 或 user_id 参数'}), 400
 
-            session_id = _parse_int_param(request.args.get('session_id'), 'session_id', None, 1, 2147483647)
+            raw_session_id = (request.args.get('session_id') or '').strip() or None
+            session_id = _parse_int_param(raw_session_id, 'session_id', None, 1, 2147483647)
+            raw_anchor_sid = (request.args.get('anchor_session_id') or '').strip() or None
+            anchor_session_id = _parse_int_param(raw_anchor_sid, 'anchor_session_id', None, 1, 2147483647)
 
-            start_date = request.args.get('start_date')
-            end_date = request.args.get('end_date')
-            message_type = request.args.get('type', 'all')  # all/chat/gift
+            start_date = _parse_date_param(request.args.get('start_date'), 'start_date')
+            end_date = _parse_date_param(request.args.get('end_date'), 'end_date')
+            anchor_start_date = _parse_date_param(request.args.get('anchor_start_date'), 'anchor_start_date')
+            anchor_end_date = _parse_date_param(request.args.get('anchor_end_date'), 'anchor_end_date')
+            message_type = (request.args.get('type') or 'all').strip() or 'all'
+            if message_type not in ('all', 'chat', 'gift'):
+                raise _InvalidParam('type 参数仅支持 all、chat 或 gift')
             page = _parse_int_param(request.args.get('page'), 'page', 1, 1, 2147483647)
             page_size = _parse_int_param(request.args.get('limit'), 'limit', 50, 1, 200)
             offset = _parse_int_param(request.args.get('offset'), 'offset', (page - 1) * page_size, 0, 2147483647)
 
-            # 调用数据服务获取用户消息
             result = data_service.get_user_messages(
                 live_id=effective_live_id,
                 user_id=user_id,
@@ -796,14 +818,17 @@ def init_rooms_api(data_service: DataService, room_manager, socketio):
                 end_date=end_date,
                 message_type=message_type,
                 limit=page_size,
-                offset=offset
+                offset=offset,
+                anchor_session_id=anchor_session_id,
+                anchor_start_date=anchor_start_date,
+                anchor_end_date=anchor_end_date,
             )
 
             logger.debug(f"获取用户消息: live_id={effective_live_id}, user_id={user_id}, user_name={user_name}, session_id={session_id}, "
                          f"type={message_type}, page={page}, total={result['pagination']['total']}")
 
             return jsonify(result)
-        except _InvalidIntParam as e:
+        except _InvalidParam as e:
             return jsonify({'error': str(e)}), 400
         except Exception:
             logger.exception('获取用户消息失败')

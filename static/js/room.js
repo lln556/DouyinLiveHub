@@ -48,6 +48,8 @@ const app = new Vue({
         showUserMessagesModal: false,
         userMessagesLoading: false,
         userMessagesTab: 'all',
+        userCardScopeMode: 'all',
+        userCardFocusSpec: null,
         userMessagesData: {
             user: {},
             stats: {
@@ -58,6 +60,8 @@ const app = new Vue({
                 total_value: 0
             },
             messages: [],
+            sessions: {},
+            scope_summary: null,
             pagination: {
                 page: 1,
                 page_size: 50,
@@ -143,6 +147,47 @@ const app = new Vue({
                 return this.messages.filter((m) => m.type === 'gift');
             }
             return this.messages;
+        },
+        userCardFocusIsLive() {
+            return Boolean(
+                this.userCardFocusSpec?.kind === 'session' &&
+                this.userCardFocusSpec.statusSnapshot === 'live'
+            );
+        },
+        userCardDisplayStats() {
+            return window.HubUI.resolveUserCardDisplayStats(
+                this.userMessagesData,
+                this.userCardScopeMode,
+                this.userCardFocusSpec
+            );
+        },
+        userCardScopeCaption() {
+            if (this.userMessagesLoading || !this.userMessagesData?.scope_summary) {
+                return '';
+            }
+            if (this.userCardDisplayStats.showScopeBar) {
+                if (this.userCardScopeMode === 'focus') {
+                    const startText = window.HubUI.formatShortDateTime(this.userCardFocusSpec?.startTimeSnapshot);
+                    if (this.userCardFocusIsLive) {
+                        return startText ? `${startText} 开播` : '仅看本场直播';
+                    }
+                    return startText ? `${startText} 场次` : '仅看该场记录';
+                }
+                return '按场次分组显示';
+            }
+            return '全部记录';
+        },
+        userMessageTimeline() {
+            const multiSession = !(
+                this.userCardScopeMode === 'focus' &&
+                this.userCardFocusSpec?.kind === 'session'
+            );
+            return window.HubUI.buildUserMessageTimeline(this.userMessagesData.messages, {
+                multiSession,
+                sessions: this.userMessagesData.sessions,
+                focusSpec: this.userCardFocusSpec,
+                currentLiveId: this.liveId
+            });
         }
     },
     watch: {
@@ -857,9 +902,14 @@ const app = new Vue({
             const userId = msg.user_id || null;
             const userName = msg.user || msg.user_name || null;
             if (!userId && !userName) return;
+            const fromPreview = Boolean(msg.is_preview || (!this.currentSession && this.previewSession));
+            const sessionId = msg.session_id
+                || (this.currentSession?.status === 'live' ? this.currentSession.id : (this.previewSession?.id || null));
             this.openUserMessagesModal(userId, userName || userId, {
-                sessionId: msg.session_id || this.currentSession?.id || this.previewSession?.id || null,
-                userName: userName
+                sessionId,
+                userName,
+                defaultScope: sessionId ? 'focus' : 'all',
+                fromPreview
             });
         },
         handleScroll() {
@@ -975,6 +1025,8 @@ const app = new Vue({
                     total_value: 0
                 },
                 messages: [],
+                sessions: {},
+                scope_summary: null,
                 pagination: {
                     page: 1,
                     page_size: 50,
@@ -1049,32 +1101,80 @@ const app = new Vue({
             this.userSearchError = '';
             this.userSearchFocused = false;
             this.userSearchResults = [];
-            this.openUserMessagesModal(
-                user.user_id,
-                user.nickname || user.user_id,
-                user.session_id || this.currentSession?.id || null
-            );
+            if (this.currentSession?.status === 'live') {
+                this.openUserMessagesModal(user.user_id, user.nickname || user.user_id, {
+                    sessionId: user.session_id || this.currentSession.id,
+                    defaultScope: 'focus'
+                });
+            } else {
+                this.openUserMessagesModal(user.user_id, user.nickname || user.user_id, {
+                    defaultScope: 'all'
+                });
+            }
         },
         async openUserMessagesModal(userId, userName, sessionOrOpts = null) {
-            let sessionId = null;
+            let explicitSessionId = null;
             let fallbackUserName = null;
-            let allSessions = false;
+            let defaultScope = null;
+            let fromPreview = false;
             if (sessionOrOpts && typeof sessionOrOpts === 'object') {
-                sessionId = sessionOrOpts.sessionId || null;
+                explicitSessionId = sessionOrOpts.sessionId || null;
                 fallbackUserName = sessionOrOpts.userName || null;
-                allSessions = Boolean(sessionOrOpts.allSessions);
-            } else {
-                sessionId = sessionOrOpts;
+                if (sessionOrOpts.defaultScope) {
+                    defaultScope = sessionOrOpts.defaultScope;
+                } else if (sessionOrOpts.allSessions) {
+                    defaultScope = 'all';
+                }
+                fromPreview = Boolean(sessionOrOpts.fromPreview);
+            } else if (sessionOrOpts) {
+                explicitSessionId = sessionOrOpts;
+            }
+
+            let focusSpec = null;
+            let scopeMode = 'all';
+
+            if (this.currentSession?.status === 'live' && this.currentSession.id) {
+                focusSpec = {
+                    kind: 'session',
+                    sessionId: explicitSessionId || this.currentSession.id,
+                    statusSnapshot: 'live',
+                    startTimeSnapshot: this.currentSession.start_time || null,
+                    label: '本场直播',
+                    shortLabel: '本场'
+                };
+                scopeMode = defaultScope || 'focus';
+            } else if (this.previewSession?.id) {
+                focusSpec = {
+                    kind: 'session',
+                    sessionId: explicitSessionId || this.previewSession.id,
+                    statusSnapshot: 'ended',
+                    startTimeSnapshot: this.previewSession.start_time || null,
+                    label: '上一场',
+                    shortLabel: '上一场'
+                };
+                scopeMode = defaultScope || 'focus';
+            } else if (explicitSessionId) {
+                focusSpec = {
+                    kind: 'session',
+                    sessionId: explicitSessionId,
+                    statusSnapshot: fromPreview ? 'ended' : 'live',
+                    startTimeSnapshot: null,
+                    label: fromPreview ? '上一场' : '本场直播',
+                    shortLabel: fromPreview ? '上一场' : '本场'
+                };
+                scopeMode = defaultScope || 'focus';
             }
 
             this.showUserMessagesModal = true;
             this.userMessagesLoading = true;
             this.userMessagesTab = 'all';
+            this.userCardFocusSpec = focusSpec;
+            this.userCardScopeMode = scopeMode;
             this.userMessagesQuery.user_id = userId || null;
             this.userMessagesQuery.user_name = userId ? null : (fallbackUserName || userName || null);
-            this.userMessagesQuery.session_id = allSessions
-                ? null
-                : (sessionId || this.currentSession?.id || this.previewSession?.id || null);
+            this.userMessagesQuery.session_id = (scopeMode === 'focus' && focusSpec?.kind === 'session')
+                ? focusSpec.sessionId
+                : null;
 
             this.resetUserMessagesData(userId || null, userName || fallbackUserName);
             await this.loadUserMessages();
@@ -1083,6 +1183,8 @@ const app = new Vue({
             this._userMessagesAbortController?.abort();
             this._userMessagesAbortController = null;
             this.showUserMessagesModal = false;
+            this.userCardScopeMode = 'all';
+            this.userCardFocusSpec = null;
             this.resetUserMessagesData();
             this.userMessagesQuery = {
                 user_id: null,
@@ -1113,8 +1215,11 @@ const app = new Vue({
                     params.append('user_name', this.userMessagesQuery.user_name);
                 }
 
-                if (this.userMessagesQuery.session_id) {
-                    params.append('session_id', this.userMessagesQuery.session_id);
+                if (this.userCardFocusSpec?.kind === 'session' && this.userCardFocusSpec.sessionId) {
+                    params.append('anchor_session_id', String(this.userCardFocusSpec.sessionId));
+                    if (this.userCardScopeMode === 'focus') {
+                        params.append('session_id', String(this.userCardFocusSpec.sessionId));
+                    }
                 }
 
                 const { data } = await window.HubUI.requestJson(
@@ -1134,6 +1239,22 @@ const app = new Vue({
                 if (data.pagination) {
                     this.userMessagesData.pagination = data.pagination;
                 }
+                this.userMessagesData.sessions = (data.sessions && typeof data.sessions === 'object')
+                    ? data.sessions
+                    : {};
+                this.userMessagesData.scope_summary = data.scope_summary || null;
+
+                if (!this.userCardFocusSpec && data.scope_summary?.anchor_session?.status === 'live') {
+                    const anchor = data.scope_summary.anchor_session;
+                    this.userCardFocusSpec = {
+                        kind: 'session',
+                        sessionId: anchor.id,
+                        statusSnapshot: 'live',
+                        startTimeSnapshot: anchor.start_time || null,
+                        label: '本场直播',
+                        shortLabel: '本场'
+                    };
+                }
                 return (data.stats?.total_messages > 0) || (data.messages?.length > 0);
             } catch (error) {
                 if (error?.name === 'AbortError') {
@@ -1148,6 +1269,16 @@ const app = new Vue({
                 }
             }
         },
+        async switchUserMessagesScope(nextScope) {
+            if (this.userCardScopeMode === nextScope) return;
+            if (nextScope === 'focus' && !this.userCardFocusSpec) return;
+            this.userCardScopeMode = nextScope;
+            this.userMessagesQuery.session_id = (nextScope === 'focus' && this.userCardFocusSpec?.kind === 'session')
+                ? this.userCardFocusSpec.sessionId
+                : null;
+            this.userMessagesData.pagination.page = 1;
+            await this.loadUserMessages();
+        },
         async switchUserMessagesTab(tab) {
             if (this.userMessagesTab === tab) return;
             this.userMessagesTab = tab;
@@ -1159,6 +1290,9 @@ const app = new Vue({
             if (page < 1 || page > pagination.total_pages) return;
             pagination.page = page;
             await this.loadUserMessages();
+        },
+        formatDiamondValue(value) {
+            return window.HubUI.formatDiamondValue(value);
         },
         formatUserMessageTime(dateStr) {
             return window.HubUI.formatShortMessageTime(dateStr);

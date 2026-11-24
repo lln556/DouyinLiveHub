@@ -10,6 +10,7 @@
     };
 
     const INTL_INT = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
+    const INTL_DECIMAL_2 = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
     const INTL_DATETIME = new Intl.DateTimeFormat('zh-CN', {
         year: 'numeric',
         month: '2-digit',
@@ -51,6 +52,23 @@
         return INTL_INT.format(num);
     }
 
+    function formatDiamondValue(value) {
+        const num = Number(value ?? 0);
+        if (!Number.isFinite(num) || num === 0) return '0';
+        const abs = Math.abs(num);
+        if (abs >= 100000000) {
+            return `${(num / 100000000).toFixed(1)}亿`;
+        }
+        if (abs >= 10000) {
+            return `${(num / 10000).toFixed(1)}万`;
+        }
+        const rounded = Math.round(num * 100) / 100;
+        if (Number.isInteger(rounded)) {
+            return INTL_INT.format(rounded);
+        }
+        return INTL_DECIMAL_2.format(rounded);
+    }
+
     function formatDateTime(value) {
         const date = parseValidDate(value);
         return date ? INTL_DATETIME.format(date) : '-';
@@ -61,12 +79,205 @@
         return date ? INTL_DATE.format(date) : '';
     }
 
+    function formatTimeOnly(value) {
+        const date = parseValidDate(value);
+        return date ? INTL_TIME.format(date) : '';
+    }
+
+    function formatShortDateTime(value) {
+        const date = parseValidDate(value);
+        if (!date) return '';
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const hh = String(date.getHours()).padStart(2, '0');
+        const min = String(date.getMinutes()).padStart(2, '0');
+        if (date.getFullYear() !== new Date().getFullYear()) {
+            return `${date.getFullYear()}-${mm}-${dd} ${hh}:${min}`;
+        }
+        return `${mm}-${dd} ${hh}:${min}`;
+    }
+
     function formatShortMessageTime(value) {
         const date = parseValidDate(value);
         if (!date) return '';
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
         return `${mm}-${dd} ${INTL_TIME.format(date)}`;
+    }
+
+    function formatSessionTimeRange(startVal, endVal, isLive) {
+        const startDate = parseValidDate(startVal);
+        const endDate = parseValidDate(endVal);
+        if (isLive) {
+            return startDate ? `${formatShortDateTime(startDate)} 开播` : '进行中';
+        }
+        if (startDate && endDate) {
+            const sameDay = (
+                startDate.getFullYear() === endDate.getFullYear() &&
+                startDate.getMonth() === endDate.getMonth() &&
+                startDate.getDate() === endDate.getDate()
+            );
+            if (sameDay) {
+                const hh = String(endDate.getHours()).padStart(2, '0');
+                const min = String(endDate.getMinutes()).padStart(2, '0');
+                return `${formatShortDateTime(startDate)}–${hh}:${min}`;
+            }
+            return `${formatShortDateTime(startDate)}–${formatShortDateTime(endDate)}`;
+        }
+        if (startDate) {
+            return formatShortDateTime(startDate);
+        }
+        return '';
+    }
+
+    function buildUserMessageTimeline(messages, options = {}) {
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return [];
+        }
+        const multiSession = Boolean(options.multiSession);
+        const sessions = (options.sessions && typeof options.sessions === 'object') ? options.sessions : {};
+        const focusSpec = options.focusSpec || null;
+        const currentLiveId = options.currentLiveId || null;
+
+        const hasAnySessionInfo = Boolean(
+            Object.keys(sessions).length > 0 ||
+            messages.some((m) => m && m.session_id !== undefined)
+        );
+
+        if (!multiSession || !hasAnySessionInfo) {
+            return messages.map((msg, idx) => ({
+                itemType: 'message',
+                _key: `${msg?.type || 'chat'}:${msg?.id ?? idx}`,
+                timeText: multiSession
+                    ? formatShortMessageTime(msg?.created_at)
+                    : (formatTimeOnly(msg?.created_at) || formatShortMessageTime(msg?.created_at)),
+                msg
+            }));
+        }
+
+        const items = [];
+        let prevSessionKey = null;
+
+        for (let idx = 0; idx < messages.length; idx++) {
+            const msg = messages[idx];
+            const hasSid = msg != null && msg.session_id !== null && msg.session_id !== undefined;
+            const currSessionKey = hasSid ? String(msg.session_id) : 'unlinked';
+
+            if (idx === 0 || currSessionKey !== prevSessionKey) {
+                const sessionMeta = hasSid ? (sessions[currSessionKey] || null) : null;
+                let status = sessionMeta?.status || null;
+                if (
+                    focusSpec?.kind === 'session' &&
+                    focusSpec.sessionId != null &&
+                    String(focusSpec.sessionId) === currSessionKey &&
+                    focusSpec.statusSnapshot
+                ) {
+                    status = focusSpec.statusSnapshot;
+                }
+                const isLive = status === 'live';
+                const titleText = isLive
+                    ? '本场直播'
+                    : (hasSid ? `历史场次 #${msg.session_id}` : '未关联场次');
+                const startVal = sessionMeta?.start_time || (isLive ? focusSpec?.startTimeSnapshot : null) || null;
+                const endVal = sessionMeta?.end_time || null;
+                const timeRangeText = hasSid ? formatSessionTimeRange(startVal, endVal, isLive) : '';
+
+                let crossRoomLabel = '';
+                if (sessionMeta?.live_id && currentLiveId && sessionMeta.live_id !== currentLiveId) {
+                    crossRoomLabel = `房间 ${sessionMeta.live_id}`;
+                } else if (!currentLiveId) {
+                    crossRoomLabel = sessionMeta?.anchor_name || msg?.anchor_name || sessionMeta?.live_id || msg?.live_id || '';
+                }
+
+                items.push({
+                    itemType: 'divider',
+                    _key: `divider:${currSessionKey}:${idx}`,
+                    sessionKey: currSessionKey,
+                    sessionId: hasSid ? msg.session_id : null,
+                    isLive,
+                    titleText,
+                    timeRangeText,
+                    crossRoomLabel
+                });
+            }
+
+            items.push({
+                itemType: 'message',
+                _key: `${msg?.type || 'chat'}:${msg?.id ?? idx}`,
+                timeText: hasSid
+                    ? (formatTimeOnly(msg?.created_at) || formatShortMessageTime(msg?.created_at))
+                    : formatShortMessageTime(msg?.created_at),
+                msg
+            });
+            prevSessionKey = currSessionKey;
+        }
+
+        return items;
+    }
+
+    function resolveUserCardDisplayStats(userMessagesData, scopeMode, focusSpec) {
+        const stats = userMessagesData?.stats || {};
+        const messages = Array.isArray(userMessagesData?.messages) ? userMessagesData.messages : [];
+        const summary = userMessagesData?.scope_summary || null;
+        const allBucket = summary?.all || null;
+        const focusBucket = summary?.focus || null;
+        const hasSummary = Boolean(allBucket);
+
+        const activeTotalMessages = Number(stats.total_messages || 0);
+        const isPrunedEmpty = Boolean(
+            scopeMode === 'all' &&
+            messages.length === 0 &&
+            (allBucket?.has_pruned_history || activeTotalMessages > 0)
+        );
+        const emptyHint = isPrunedEmpty
+            ? '历史消息明细已过保留期，上方展示房间累计汇总'
+            : '该用户暂无消息记录';
+
+        if (!hasSummary) {
+            return {
+                chatDisplay: formatCompactNumber(stats.chat_count || 0),
+                chatSub: '',
+                giftDisplay: formatCompactNumber(stats.gift_count || 0),
+                giftSub: '',
+                diamondDisplay: formatDiamondValue(stats.total_value || 0),
+                diamondSub: '',
+                likeDisplay: formatCompactNumber(stats.like_count || 0),
+                likeSub: '房间累计',
+                activeTotalMessages,
+                focusBadgeCount: 0,
+                allBadgeCount: activeTotalMessages,
+                sessionCount: 0,
+                showScopeBar: false,
+                emptyHint
+            };
+        }
+
+        const inFocusMode = scopeMode === 'focus' && Boolean(focusBucket);
+        const primary = inFocusMode ? focusBucket : allBucket;
+        const secondary = inFocusMode ? allBucket : focusBucket;
+        const focusShort = focusSpec?.shortLabel || (focusBucket?.kind === 'date_range' ? '周期内' : '本场');
+        const subPrefix = inFocusMode ? '累计 ' : `${focusShort} `;
+
+        const primaryGift = primary.gift_item_count ?? primary.gift_count ?? 0;
+        const secondaryGift = secondary ? (secondary.gift_item_count ?? secondary.gift_count ?? 0) : 0;
+        const likeValue = allBucket.like_count ?? summary.room_like_count ?? stats.like_count ?? 0;
+
+        return {
+            chatDisplay: formatCompactNumber(primary.chat_count || 0),
+            chatSub: secondary ? `${subPrefix}${formatCompactNumber(secondary.chat_count || 0)}` : '',
+            giftDisplay: formatCompactNumber(primaryGift),
+            giftSub: secondary ? `${subPrefix}${formatCompactNumber(secondaryGift)}` : '',
+            diamondDisplay: formatDiamondValue(primary.total_value || 0),
+            diamondSub: secondary ? `${subPrefix}${formatDiamondValue(secondary.total_value || 0)}` : '',
+            likeDisplay: formatCompactNumber(likeValue),
+            likeSub: '房间累计',
+            activeTotalMessages,
+            focusBadgeCount: focusBucket ? Number(focusBucket.total_messages || 0) : 0,
+            allBadgeCount: Number(allBucket.total_messages || 0),
+            sessionCount: Number(allBucket.session_count || 0),
+            showScopeBar: Boolean(focusSpec && focusBucket),
+            emptyHint
+        };
     }
 
     /**
@@ -765,9 +976,14 @@
     global.HubUI = {
         formatInteger,
         formatCompactNumber,
+        formatDiamondValue,
         formatDateTime,
         formatDate,
+        formatTimeOnly,
+        formatShortDateTime,
         formatShortMessageTime,
+        buildUserMessageTimeline,
+        resolveUserCardDisplayStats,
         isImeComposing,
         bindImeCompositionTracker,
         requestJson,

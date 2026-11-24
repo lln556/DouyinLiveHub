@@ -375,9 +375,8 @@
                                     <div v-else class="px-3 py-4 text-center text-sm" :class="userSearchError ? 'text-red-500' : 'text-gray-400'">
                                         <span v-text="userSearchError || '未找到匹配用户'"></span>
                                     </div>
-                                    <div v-if="userSearchResults.length > 0" class="px-3 py-1.5 bg-gray-50 text-xs text-gray-400">
-                                        点击用户查看本场消息记录
-                                    </div>
+                                    <div v-if="userSearchResults.length > 0" class="px-3 py-1.5 bg-gray-50 text-xs text-gray-400"
+                                         v-text="currentSession ? '点击用户查看本场消息记录' : '点击用户查看房间消息记录'"></div>
                                 </div>
                             </form>
                         </search>
@@ -455,7 +454,7 @@
                                     <div class="flex-1 min-w-0">
                                         <div class="flex items-center gap-1">
                                             <span class="font-semibold text-sm text-gray-900 truncate cursor-pointer hover:text-blue-600"
-                                                 @click="openUserMessagesModal(liker.user_id, liker.user, { allSessions: !currentSession })"
+                                                 @click="openUserMessagesModal(liker.user_id, liker.user, { defaultScope: currentSession ? 'focus' : 'all' })"
                                                  v-text="formatDisplayName(liker.user, liker.user_id)"></span>
                                             <img v-if="liker.user_level"
                                                  loading="lazy" decoding="async"
@@ -478,7 +477,6 @@
             </div>
         </main>
 
-        <!-- 用户消息模态框 (原生顶层 <dialog>) -->
         <dialog
             ref="userMessagesModal"
             class="hub-modal user-modal-overlay hub-modal-lg"
@@ -525,35 +523,71 @@
                                     <span v-if="userMessagesData.user.following_count || userMessagesData.user.follower_count"
                                           v-text="'关注 ' + formatNumber(userMessagesData.user.following_count || 0) + ' · 粉丝 ' + formatNumber(userMessagesData.user.follower_count || 0)"></span>
                                 </div>
+                                <div v-if="userCardDisplayStats.sessionCount > 0" class="user-context-pills">
+                                    <span class="user-context-pill" v-text="'共到访 ' + userCardDisplayStats.sessionCount + ' 场'"></span>
+                                </div>
                             </div>
                         </div>
                         <button type="button" @click="closeUserMessagesModal" aria-label="关闭用户消息弹窗" autofocus class="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
                     </div>
 
                     <div class="user-stat-chips">
-                        <div class="user-stat-chip" data-chip="messages">
-                            <div class="user-stat-chip-label">消息</div>
-                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.total_messages || 0)"></div>
-                        </div>
                         <div class="user-stat-chip" data-chip="chat">
                             <div class="user-stat-chip-label">弹幕</div>
-                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.chat_count || 0)"></div>
+                            <div class="user-stat-chip-value" v-text="userCardDisplayStats.chatDisplay"></div>
+                            <div v-if="userCardDisplayStats.chatSub" class="user-stat-chip-sub" v-text="userCardDisplayStats.chatSub"></div>
                         </div>
                         <div class="user-stat-chip" data-chip="gift">
                             <div class="user-stat-chip-label">礼物</div>
-                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.gift_count || 0)"></div>
+                            <div class="user-stat-chip-value" v-text="userCardDisplayStats.giftDisplay"></div>
+                            <div v-if="userCardDisplayStats.giftSub" class="user-stat-chip-sub" v-text="userCardDisplayStats.giftSub"></div>
+                        </div>
+                        <div class="user-stat-chip" data-chip="diamond">
+                            <div class="user-stat-chip-label">送礼钻石</div>
+                            <div class="user-stat-chip-value" v-text="userCardDisplayStats.diamondDisplay"></div>
+                            <div v-if="userCardDisplayStats.diamondSub" class="user-stat-chip-sub" v-text="userCardDisplayStats.diamondSub"></div>
                         </div>
                         <div class="user-stat-chip" data-chip="like" title="点赞为累计计数，无消息列表">
                             <div class="user-stat-chip-label">点赞</div>
-                            <div class="user-stat-chip-value" v-text="formatNumber(userMessagesData.stats.like_count || 0)"></div>
+                            <div class="user-stat-chip-value" v-text="userCardDisplayStats.likeDisplay"></div>
+                            <div class="user-stat-chip-sub" v-text="userCardDisplayStats.likeSub"></div>
                         </div>
                     </div>
+                </div>
+
+                <div v-if="userCardDisplayStats.showScopeBar" class="user-scope-bar">
+                    <div class="user-scope-seg" role="group" aria-label="消息场次范围">
+                        <button
+                            type="button"
+                            data-scope-btn="focus"
+                            :aria-pressed="userCardScopeMode === 'focus' ? 'true' : 'false'"
+                            @click="switchUserMessagesScope('focus')"
+                            :class="['user-scope-btn', userCardFocusIsLive ? 'is-live' : '']">
+                            <span v-if="userCardFocusIsLive" class="user-scope-live-dot" aria-hidden="true"></span>
+                            <span v-text="userCardFocusSpec ? userCardFocusSpec.label : '本场直播'"></span>
+                            <span class="user-scope-count" v-text="'(' + formatNumber(userCardDisplayStats.focusBadgeCount) + ')'"></span>
+                        </button>
+                        <button
+                            type="button"
+                            data-scope-btn="all"
+                            :aria-pressed="userCardScopeMode === 'all' ? 'true' : 'false'"
+                            @click="switchUserMessagesScope('all')"
+                            class="user-scope-btn">
+                            <span>全部</span>
+                            <span class="user-scope-count" v-text="'(' + formatNumber(userCardDisplayStats.allBadgeCount) + ')'"></span>
+                        </button>
+                    </div>
+                    <span v-if="userCardScopeCaption" class="user-scope-caption" v-text="userCardScopeCaption"></span>
+                </div>
+                <div v-else-if="userCardScopeCaption" class="user-scope-bar">
+                    <span class="user-scope-caption" v-text="userCardScopeCaption"></span>
                 </div>
 
                 <div class="border-b border-gray-100">
                     <div class="flex">
                         <button
                             type="button"
+                            :aria-pressed="userMessagesTab === 'all' ? 'true' : 'false'"
                             @click="switchUserMessagesTab('all')"
                             :class="['user-tab-button flex-1', userMessagesTab === 'all' ? 'active' : '']">
                             全部消息
@@ -561,6 +595,7 @@
                         </button>
                         <button
                             type="button"
+                            :aria-pressed="userMessagesTab === 'chat' ? 'true' : 'false'"
                             @click="switchUserMessagesTab('chat')"
                             :class="['user-tab-button flex-1', userMessagesTab === 'chat' ? 'active' : '']">
                             弹幕
@@ -568,6 +603,7 @@
                         </button>
                         <button
                             type="button"
+                            :aria-pressed="userMessagesTab === 'gift' ? 'true' : 'false'"
                             @click="switchUserMessagesTab('gift')"
                             :class="['user-tab-button flex-1', userMessagesTab === 'gift' ? 'active' : '']">
                             礼物
@@ -581,44 +617,58 @@
                         <p class="text-sm text-gray-400">加载中...</p>
                     </div>
                     <div v-else-if="userMessagesData.messages.length === 0" class="user-messages-placeholder">
-                        <p class="text-sm text-gray-400">该用户暂无消息记录</p>
+                        <p class="text-sm text-gray-400" v-text="userCardDisplayStats.emptyHint"></p>
                     </div>
-                    <div v-else class="user-messages-list space-y-2" :key="userMessagesTab">
-                        <div v-for="msg in userMessagesData.messages" :key="msg.id"
-                             :class="['user-message-card', msg.type === 'gift' ? 'user-gift-card' : 'user-chat-card']">
-                            <div class="flex items-center justify-between mb-1">
-                                <div class="flex items-center">
-                                    <img v-if="msg.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + msg.user_level + '.png'"
-                                         alt=""
-                                         class="hub-badge-icon hub-badge-icon-sm mr-1">
-                                    <img v-if="msg.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + msg.fans_club_level + '.png'"
-                                         alt=""
-                                         class="hub-badge-icon hub-badge-icon-sm hub-badge-gap-right">
-                                    <span class="font-semibold text-blue-600 text-xs" v-text="formatDisplayName(msg.nickname, msg.user_id)"></span>
+                    <div v-else class="user-messages-list space-y-2" :key="userMessagesTab + ':' + userCardScopeMode">
+                        <template v-for="item in userMessageTimeline">
+                            <div v-if="item.itemType === 'divider'"
+                                 :key="item._key"
+                                 :data-session-divider="item.sessionKey"
+                                 :class="['user-session-divider', item.isLive ? 'is-live' : '']">
+                                <span class="user-session-divider-main">
+                                    <span v-if="item.isLive" class="user-scope-live-dot" aria-hidden="true"></span>
+                                    <span v-text="item.titleText"></span>
+                                    <span v-if="item.crossRoomLabel" class="user-session-divider-room" v-text="item.crossRoomLabel"></span>
+                                </span>
+                                <span v-if="item.timeRangeText" class="user-session-divider-meta" v-text="item.timeRangeText"></span>
+                            </div>
+                            <div v-else
+                                 :key="item._key"
+                                 :class="['user-message-card', item.msg.type === 'gift' ? 'user-gift-card' : 'user-chat-card']">
+                                <div class="flex items-center justify-between mb-1">
+                                    <div class="flex items-center">
+                                        <img v-if="item.msg.user_level" loading="lazy" decoding="async" :src="'/level_img/level_' + item.msg.user_level + '.png'"
+                                             alt=""
+                                             class="hub-badge-icon hub-badge-icon-sm mr-1">
+                                        <img v-if="item.msg.fans_club_level" loading="lazy" decoding="async" :src="'/fansclub_img/fansclub_' + item.msg.fans_club_level + '.png'"
+                                             alt=""
+                                             class="hub-badge-icon hub-badge-icon-sm hub-badge-gap-right">
+                                        <span class="font-semibold text-blue-600 text-xs" v-text="formatDisplayName(item.msg.nickname, item.msg.user_id)"></span>
+                                    </div>
+                                    <span class="text-gray-400 text-xs hub-num" v-text="item.timeText"></span>
                                 </div>
-                                <span class="text-gray-400 text-xs" v-text="formatUserMessageTime(msg.created_at)"></span>
+                                <div v-if="item.msg.type === 'chat'" class="text-gray-700 text-sm">
+                                    <template v-for="(seg, sIdx) in parseChatSegments(item.msg.content, item.msg.emoji_list)">
+                                        <img v-if="seg.type === 'emoji'"
+                                             :key="sIdx"
+                                             :src="seg.src"
+                                             :alt="seg.alt"
+                                             :title="seg.alt"
+                                             :class="seg.sticker ? 'danmu-emoji-sticker' : 'danmu-emoji'"
+                                             :referrerpolicy="seg.external ? 'no-referrer' : null"
+                                             loading="lazy"
+                                             decoding="async"
+                                             @error="onEmojiError($event)">
+                                        <span v-else :key="sIdx" v-text="seg.text"></span>
+                                    </template>
+                                </div>
+                                <div v-else class="text-gray-700 text-sm">
+                                    送出 <span class="font-semibold text-pink-600" v-text="item.msg.gift_name"></span>
+                                    <span class="text-gray-500" v-text="' x' + item.msg.gift_count"></span>
+                                    <span class="ml-2 text-yellow-600 font-semibold" v-text="formatDiamondValue(item.msg.diamond_count) + ' 钻石'"></span>
+                                </div>
                             </div>
-                            <div v-if="msg.type === 'chat'" class="text-gray-700 text-sm">
-                                <template v-for="(seg, sIdx) in parseChatSegments(msg.content, msg.emoji_list)">
-                                    <img v-if="seg.type === 'emoji'"
-                                         :key="sIdx"
-                                         :src="seg.src"
-                                         :alt="seg.alt"
-                                         :title="seg.alt"
-                                         :class="seg.sticker ? 'danmu-emoji-sticker' : 'danmu-emoji'"
-                                         :referrerpolicy="seg.external ? 'no-referrer' : null"
-                                         loading="lazy"
-                                         decoding="async"
-                                         @error="onEmojiError($event)">
-                                    <span v-else :key="sIdx" v-text="seg.text"></span>
-                                </template>
-                            </div>
-                            <div v-else class="text-gray-700 text-sm">
-                                送出 <span class="font-semibold text-pink-600" v-text="msg.gift_name"></span>
-                                <span class="text-gray-500" v-text="' x' + msg.gift_count"></span>
-                                <span class="ml-2 text-yellow-600 font-semibold" v-text="msg.diamond_count + ' 钻石'"></span>
-                            </div>
-                        </div>
+                        </template>
                     </div>
                 </div>
 
